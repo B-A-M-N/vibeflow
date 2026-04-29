@@ -1,0 +1,11 @@
+{
+  "name": "vibe-flow",
+  "version": "1.0.0",
+  "description": "Claude Code plugin for designing, planning, applying, and validating Mistral Vibe workflows through a single-model command lifecycle with signed artifacts, shared runtime knowledge, feasibility gates, and deterministic proof.",
+  "author": {
+    "name": "VibeFlow",
+    "email": "vibeflow@localhost"
+  },
+  "commands": "./commands/",
+  "skills": "./skills/"
+}

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VibeFlow Workflow Contract",
+  "type": "object",
+  "required": ["name", "phase", "intent", "artifacts"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Workflow name in kebab-case"
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["init-draft", "init-approved", "design-approved", "plan-approved", "applied", "validated"],
+      "description": "Current lifecycle phase"
+    },
+    "intent": {
+      "type": "object",
+      "required": ["goal", "scope", "success_criteria"],
+      "properties": {
+        "goal": { "type": "string" },
+        "context": { "type": "string" },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "in_scope": { "type": "array", "items": { "type": "string" } },
+            "out_of_scope": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "desired_behavior": { "type": "string" },
+        "non_goals": { "type": "array", "items": { "type": "string" } },
+        "success_criteria": { "type": "array", "items": { "type": "string" } },
+        "constraints": { "type": "array", "items": { "type": "string" } },
+        "assumptions": { "type": "array", "items": { "type": "string" } },
+        "open_feasibility_questions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "confidence": {
+      "type": "object",
+      "properties": {
+        "goal": { "type": "number", "minimum": 0, "maximum": 1 },
+        "scope": { "type": "number", "minimum": 0, "maximum": 1 },
+        "behavior": { "type": "number", "minimum": 0, "maximum": 1 },
+        "success_criteria": { "type": "number", "minimum": 0, "maximum": 1 },
+        "overall": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "required": ["vision", "plan", "contract"],
+      "properties": {
+        "vision": { "type": "string", "default": "VISION.md" },
+        "plan": { "type": "string", "default": "PLAN.md" },
+        "contract": { "type": "string", "default": "WORKFLOW_CONTRACT.json" },
+        "design": { "type": "string", "default": "DESIGN.md" },
+        "architecture": { "type": "string", "default": "ARCHITECTURE.md" },
+        "validation_report": { "type": "string" }
+      }
+    },
+    "design": {
+      "type": "object",
+      "properties": {
+        "approved": { "type": "boolean", "default": false },
+        "runtime_surfaces": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["config", "skill", "tool", "middleware", "event", "session", "source", "backend-boundary", "not-feasible"]
+          }
+        },
+        "feasibility_tier": {
+          "type": "string",
+          "enum": ["A", "B", "C", "D", "E"]
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "purpose", "surface"],
+            "properties": {
+              "name": { "type": "string" },
+              "purpose": { "type": "string" },
+              "surface": { "type": "string" },
+              "source_files": { "type": "array", "items": { "type": "string" } },
+              "contracts": { "type": "array", "items": { "type": "string" } },
+              "risks": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "properties": {
+        "approved": { "type": "boolean", "default": false },
+        "file_targets": { "type": "array", "items": { "type": "string" } },
+        "validation_gates": { "type": "array", "items": { "type": "string" } },
+        "evidence_requirements": { "type": "array", "items": { "type": "string" } },
+        "deviations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "verdict": { "type": "string", "enum": ["READY", "NEEDS_REWORK", "FAILED"] },
+        "checks_run": { "type": "array", "items": { "type": "string" } },
+        "proof_points": { "type": "array", "items": { "type": "string" } },
+        "failures": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

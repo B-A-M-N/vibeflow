@@ -1,0 +1,23 @@
+# Claude state files
+.claude/
+*.local.md
+
+# Workflow state files
+*.state.json
+workflow-state/
+
+# Sandbox
+sandbox/
+test-repo/
+
+# Python
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

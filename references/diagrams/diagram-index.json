@@ -1,0 +1,209 @@
+{
+  "version": 1,
+  "diagrams": [
+    {
+      "id": "architecture-overview",
+      "path": "references/diagrams/architecture-overview.md",
+      "source_capture": "deepwiki-vibe-capture/out/7-architecture/context.txt",
+      "runtime_surfaces": ["entrypoint", "agent_loop", "tool", "session", "llm_backend", "type_system", "config"],
+      "source_files": [
+        "vibe/cli/entrypoint.py",
+        "vibe/acp/entrypoint.py",
+        "vibe/core/agent_loop.py",
+        "vibe/core/tools/manager.py",
+        "vibe/core/session/session_logger.py",
+        "vibe/core/types.py",
+        "vibe/core/config/_settings.py"
+      ],
+      "nodes": ["CLI", "ACP", "AgentLoop", "ToolManager", "SessionLogger", "CoreTypes", "MistralBackend", "GenericBackend", "VibeConfig"],
+      "edges": [
+        ["CLI", "AgentLoop"],
+        ["ACP", "AgentLoop"],
+        ["AgentLoop", "ToolManager"],
+        ["AgentLoop", "SessionLogger"],
+        ["AgentLoop", "CoreTypes"],
+        ["VibeConfig", "AgentLoop"],
+        ["VibeConfig", "ToolManager"]
+      ]
+    },
+    {
+      "id": "agent-loop",
+      "path": "references/diagrams/agent-loop.md",
+      "source_capture": "deepwiki-vibe-capture/out/3.3-agent-loop-and-execution-model/context.txt",
+      "runtime_surfaces": ["agent_loop", "middleware", "tool", "event", "stats"],
+      "source_files": [
+        "vibe/core/agent_loop.py",
+        "vibe/core/middleware.py",
+        "vibe/core/system_prompt.py",
+        "vibe/core/types.py"
+      ],
+      "nodes": ["AgentLoop.act", "MessageList", "MiddlewarePipeline.before_turn", "BackendLike.stream_completion", "APIToolFormatHandler.resolve_tool_calls", "AgentLoop._execute_tool_call", "ToolManager", "BaseEvent", "AgentStats"],
+      "edges": [
+        ["AgentLoop.act", "MessageList"],
+        ["MessageList", "MiddlewarePipeline.before_turn"],
+        ["MiddlewarePipeline.before_turn", "BackendLike.stream_completion"],
+        ["BackendLike.stream_completion", "BaseEvent"],
+        ["BackendLike.stream_completion", "APIToolFormatHandler.resolve_tool_calls"],
+        ["APIToolFormatHandler.resolve_tool_calls", "AgentLoop._execute_tool_call"],
+        ["AgentLoop._execute_tool_call", "ToolManager"]
+      ]
+    },
+    {
+      "id": "tool-system",
+      "path": "references/diagrams/tool-system.md",
+      "source_capture": "deepwiki-vibe-capture/out/7.5-tool-manager-architecture/context.txt",
+      "runtime_surfaces": ["tool", "mcp", "config"],
+      "source_files": [
+        "vibe/core/tools/manager.py",
+        "vibe/core/tools/base.py",
+        "vibe/core/tools/mcp/registry.py"
+      ],
+      "nodes": ["ToolManager", "_compute_search_paths", "_iter_tool_classes", "_load_tools_from_file", "MCPRegistry", "BaseTool.from_config", "_available", "_instances"],
+      "edges": [
+        ["ToolManager", "_compute_search_paths"],
+        ["_compute_search_paths", "_iter_tool_classes"],
+        ["_iter_tool_classes", "_load_tools_from_file"],
+        ["_load_tools_from_file", "_available"],
+        ["MCPRegistry", "_available"],
+        ["_available", "BaseTool.from_config"],
+        ["BaseTool.from_config", "_instances"]
+      ]
+    },
+    {
+      "id": "event-system",
+      "path": "references/diagrams/event-system.md",
+      "source_capture": "deepwiki-vibe-capture/out/7.6-streaming-and-event-system/context.txt",
+      "runtime_surfaces": ["event", "agent_loop", "ui", "acp"],
+      "source_files": [
+        "vibe/core/types.py",
+        "vibe/core/agent_loop.py",
+        "vibe/cli/textual_ui/handlers/event_handler.py",
+        "vibe/core/nuage/remote_workflow_event_translator.py"
+      ],
+      "nodes": ["BaseEvent", "AssistantEvent", "ReasoningEvent", "ToolCallEvent", "ToolResultEvent", "ToolStreamEvent", "EventHandler", "TUI widgets"],
+      "edges": [
+        ["AgentLoop", "BaseEvent"],
+        ["BaseEvent", "EventHandler"],
+        ["EventHandler", "TUI widgets"]
+      ]
+    },
+    {
+      "id": "config-system",
+      "path": "references/diagrams/config-system.md",
+      "source_capture": "deepwiki-vibe-capture/out/2.2-configuration/context.txt",
+      "runtime_surfaces": ["config", "session", "mcp"],
+      "source_files": [
+        "vibe/core/paths.py",
+        "vibe/core/config/_settings.py",
+        "vibe/core/config/harness_files/_harness_manager.py"
+      ],
+      "nodes": ["OS environment variables", ".env files", ".vibe/config.toml", "~/.config/vibe/config.toml", "VibeConfig", "SessionLoggingConfig", "MCPServer"],
+      "edges": [
+        ["OS environment variables", "VibeConfig"],
+        [".env files", "VibeConfig"],
+        [".vibe/config.toml", "VibeConfig"],
+        ["~/.config/vibe/config.toml", "VibeConfig"]
+      ]
+    },
+    {
+      "id": "session-management",
+      "path": "references/diagrams/session-management.md",
+      "source_capture": "deepwiki-vibe-capture/out/3.7-session-management/context.txt",
+      "runtime_surfaces": ["session", "persistence", "stats"],
+      "source_files": [
+        "vibe/core/session/session_logger.py",
+        "vibe/core/session/session_loader.py",
+        "vibe/core/types.py"
+      ],
+      "nodes": ["SessionLogger", "SessionLoader", "SessionMetadata", "LLMMessage", "meta.json", "messages.jsonl", "AgentStats"],
+      "edges": [
+        ["SessionLogger", "meta.json"],
+        ["SessionLogger", "messages.jsonl"],
+        ["SessionLoader", "meta.json"],
+        ["SessionLoader", "messages.jsonl"],
+        ["messages.jsonl", "LLMMessage"],
+        ["meta.json", "SessionMetadata"],
+        ["SessionMetadata", "AgentStats"]
+      ]
+    },
+    {
+      "id": "feasibility-substrate",
+      "path": "references/diagrams/feasibility-substrate.md",
+      "source_capture": "references/feasibility/*.md",
+      "runtime_surfaces": ["feasibility", "design", "plan", "validate"],
+      "source_files": [],
+      "nodes": ["Extension Point Taxonomy", "Key Interfaces & Contracts", "Workflow Pattern Library", "Event System Reference", "Configuration Keys", "Tier Composition Patterns", "Diagnostic & Observability"],
+      "edges": [
+        ["Signed Intent", "Extension Point Taxonomy"],
+        ["Signed Intent", "Key Interfaces & Contracts"],
+        ["Extension Point Taxonomy", "Approved Runtime Design"],
+        ["Key Interfaces & Contracts", "Approved Runtime Design"],
+        ["Workflow Pattern Library", "Approved Runtime Design"],
+        ["Diagnostic & Observability", "Validation Proof"]
+      ]
+    },
+    {
+      "id": "extension-point-taxonomy",
+      "path": "references/diagrams/extension-point-taxonomy.md",
+      "source_capture": "references/feasibility/extension-point-taxonomy.md",
+      "runtime_surfaces": ["config", "skill", "tool", "middleware", "source", "not-feasible"],
+      "source_files": ["vibe/core/agent_loop.py", "vibe/core/middleware.py", "vibe/core/tools/base.py", "vibe/core/tools/manager.py", "vibe/core/types.py", "vibe/core/session/"],
+      "nodes": ["Tier A", "Tier B", "Tier C", "Tier D", "Tier E"],
+      "edges": [["Tier A", "Tier B"], ["Tier B", "Tier C"], ["Tier C", "Tier D"], ["Tier D", "Tier E"]]
+    },
+    {
+      "id": "key-interfaces-contracts",
+      "path": "references/diagrams/key-interfaces-contracts.md",
+      "source_capture": "references/feasibility/key-interfaces-contracts.md",
+      "runtime_surfaces": ["tool", "middleware", "event", "conversation_context", "stats"],
+      "source_files": ["vibe/core/tools/base.py", "vibe/core/middleware.py", "vibe/core/types.py"],
+      "nodes": ["BaseTool", "ToolArgs", "ToolResult", "BaseToolConfig", "InvokeContext", "Middleware.before_turn", "MiddlewareAction", "LLMMessage", "BaseEvent", "AgentStats"],
+      "edges": [["BaseTool", "InvokeContext"], ["Middleware.before_turn", "MiddlewareAction"], ["BaseEvent", "AssistantEvent"], ["BaseEvent", "ToolCallEvent"], ["BaseEvent", "ToolResultEvent"]]
+    },
+    {
+      "id": "workflow-pattern-library",
+      "path": "references/diagrams/workflow-pattern-library.md",
+      "source_capture": "references/feasibility/workflow-pattern-library.md",
+      "runtime_surfaces": ["pattern", "tier", "runtime_surface"],
+      "source_files": [],
+      "nodes": ["Skill-guided workflow", "External service tool", "Phase/policy guard", "Event-aware UX", "Session-backed continuity", "Source-level runtime change", "Impossible assumption"],
+      "edges": [["Skill-guided workflow", "Tier A"], ["External service tool", "Tier B"], ["Phase/policy guard", "Tier C"], ["Source-level runtime change", "Tier D"], ["Impossible assumption", "Tier E"]]
+    },
+    {
+      "id": "event-system-reference",
+      "path": "references/diagrams/event-system-reference.md",
+      "source_capture": "references/feasibility/event-system-reference.md",
+      "runtime_surfaces": ["event", "ui", "acp", "validation"],
+      "source_files": ["vibe/core/types.py", "vibe/core/agent_loop.py", "vibe/cli/textual_ui/handlers/event_handler.py"],
+      "nodes": ["AgentLoop", "BaseEvent", "AssistantEvent", "ReasoningEvent", "ToolCallEvent", "ToolResultEvent", "ToolStreamEvent", "EventHandler", "ACP consumers"],
+      "edges": [["AgentLoop", "BaseEvent"], ["BaseEvent", "EventHandler"], ["BaseEvent", "ACP consumers"]]
+    },
+    {
+      "id": "configuration-keys-workflow-control",
+      "path": "references/diagrams/configuration-keys-workflow-control.md",
+      "source_capture": "references/feasibility/configuration-keys-workflow-control.md",
+      "runtime_surfaces": ["config", "model", "permission", "tool", "session", "mcp"],
+      "source_files": ["vibe/core/config/_settings.py"],
+      "nodes": ["VibeConfig", "active_model", "auto_approve", "permission", "enabled_tools", "disabled_tools", "tool_paths", "session_prefix", "mcp_servers"],
+      "edges": [["VibeConfig", "active_model"], ["VibeConfig", "permission"], ["VibeConfig", "tool_paths"], ["VibeConfig", "session_prefix"], ["VibeConfig", "mcp_servers"]]
+    },
+    {
+      "id": "tier-composition-patterns",
+      "path": "references/diagrams/tier-composition-patterns.md",
+      "source_capture": "references/feasibility/tier-composition-patterns.md",
+      "runtime_surfaces": ["tier_composition", "classification"],
+      "source_files": [],
+      "nodes": ["A + B", "A + C", "B + C", "C + D", "D + Event Consumer Changes", "Highest Required Tier"],
+      "edges": [["A + B", "Highest Required Tier"], ["A + C", "Highest Required Tier"], ["B + C", "Highest Required Tier"], ["C + D", "Highest Required Tier"], ["D + Event Consumer Changes", "Highest Required Tier"]]
+    },
+    {
+      "id": "diagnostic-observability",
+      "path": "references/diagrams/diagnostic-observability.md",
+      "source_capture": "references/feasibility/diagnostic-observability.md",
+      "runtime_surfaces": ["stats", "session", "opentelemetry", "event", "evidence"],
+      "source_files": ["vibe/core/types.py", "vibe/core/session/session_logger.py"],
+      "nodes": ["AgentStats", "SessionLogger", "OpenTelemetry", "BaseEvent stream", "Evidence report", "Validation Proof", "Verdict"],
+      "edges": [["AgentStats", "Validation Proof"], ["SessionLogger", "Validation Proof"], ["OpenTelemetry", "Validation Proof"], ["BaseEvent stream", "Validation Proof"], ["Evidence report", "Validation Proof"], ["Validation Proof", "Verdict"]]
+    }
+  ]
+}

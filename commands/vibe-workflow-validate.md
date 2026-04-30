@@ -28,8 +28,11 @@ Run deterministic checks wherever possible:
 4. Topology check: phases have entry/exit criteria and bounded convergence.
 5. Tooling contract check: required tools, expected inputs, expected outputs, execution entrypoint, evidence output location, and failure semantics are present.
 6. Execution/dry-run check: `dry-run-simulator.py` parses and executes generated `workflow.yaml`.
-7. Evidence check: simulator writes `.vibe-workflow/evidence/latest.json` or the manifest's declared evidence output.
-8. Report check: validation report is generated from actual runnable evidence.
+7. State invariant check: `currentPhase`, `retryCounts`, `evidence`, and `gateDecisions` survive the dry run.
+8. Design decision contract check: selected surfaces have proof, rejected/not-applicable surfaces are not required, and runtime requirements trace to selected surfaces.
+9. Drift check: manifest execution still matches approved `WORKFLOW_CONTRACT.json` runtime surfaces/components when present.
+10. Evidence check: simulator writes `.vibe-workflow/evidence/latest.json` or the manifest's declared evidence output.
+11. Report check: validation report is generated from actual runnable evidence.
 
 Use references on demand. Start from `references/diagrams/diagram-index.json` when checking runtime surfaces, then read only the specific feasibility/interface/event/config/session references needed to validate the implementation.
 
@@ -46,6 +49,10 @@ Individual scripts remain available for targeted debugging:
 - `workflow-linter.py`
 - `dry-run-simulator.py`
 - `gate-engine.py`
+- `state-invariant-checker.py`
+- `design-contract-linter.py`
+- `pattern-fit-linter.py`
+- `drift-detector.py`
 - `convergence-scorer.py`
 - `evidence-reporter.py`
 - `failure-classifier.py`

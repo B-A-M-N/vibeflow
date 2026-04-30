@@ -25,6 +25,22 @@ def run_validation(manifest_path: str, evidence_path: str | None = None, report_
 
     lint = _run_check("workflow-linter", [sys.executable, str(ROOT / "workflow-linter.py"), str(manifest_file)])
     checks.append(lint)
+    lint_results_path = str(Path(report_dir) / "lint-results.json")
+    if isinstance(lint.get("parsed"), dict):
+        write_json(lint_results_path, lint["parsed"])
+        checks.append(_run_check(
+            "failure-classifier",
+            [sys.executable, str(ROOT / "failure-classifier.py"), lint_results_path],
+        ))
+    else:
+        checks.append({
+            "name": "failure-classifier",
+            "passed": False,
+            "skipped": True,
+            "failure_domain": "plugin_tooling",
+            "blocking_reason": "lint_results_missing",
+            "safe_next_action": "repair linter output before classifying failures",
+        })
 
     simulator = _run_check(
         "dry-run-simulator",
@@ -32,11 +48,52 @@ def run_validation(manifest_path: str, evidence_path: str | None = None, report_
     )
     checks.append(simulator)
 
+    state_path = _declared_state_path(manifest_file)
+    if state_path:
+        checks.append(_run_check(
+            "state-invariant-checker",
+            [sys.executable, str(ROOT / "state-invariant-checker.py"), state_path, str(manifest_file)],
+        ))
+    else:
+        checks.append({
+            "name": "state-invariant-checker",
+            "passed": False,
+            "skipped": True,
+            "failure_domain": "generated_workflow",
+            "blocking_reason": "state_path_missing",
+            "safe_next_action": "add state.path to the workflow manifest",
+        })
+
     gate = _run_check("gate-engine", [sys.executable, str(ROOT / "gate-engine.py"), str(manifest_file)])
     checks.append(gate)
 
-    convergence = None
-    if Path(evidence_out).exists():
+    design_contract = _run_check(
+        "design-contract-linter",
+        [sys.executable, str(ROOT / "design-contract-linter.py"), str(manifest_file)],
+    )
+    checks.append(design_contract)
+
+    contract_path = _declared_contract_path(manifest_file)
+    if contract_path:
+        checks.append(_run_check(
+            "pattern-fit-linter",
+            [sys.executable, str(ROOT / "pattern-fit-linter.py"), contract_path],
+        ))
+    else:
+        checks.append({
+            "name": "pattern-fit-linter",
+            "passed": True,
+            "skipped": True,
+            "failure_domain": None,
+            "safe_next_action": "continue",
+        })
+
+    if simulator.get("passed"):
+        drift = _run_check(
+            "drift-detector",
+            [sys.executable, str(ROOT / "drift-detector.py"), str(manifest_file), evidence_out],
+        )
+        checks.append(drift)
         convergence = _run_check(
             "convergence-scorer",
             [sys.executable, str(ROOT / "convergence-scorer.py"), evidence_out, str(manifest_file)],
@@ -50,6 +107,14 @@ def run_validation(manifest_path: str, evidence_path: str | None = None, report_
             "failure_domain": "generated_workflow",
             "blocking_reason": "evidence_missing",
             "safe_next_action": "repair dry-run or schema failure before convergence scoring",
+        })
+        checks.append({
+            "name": "drift-detector",
+            "passed": False,
+            "skipped": True,
+            "failure_domain": "generated_workflow",
+            "blocking_reason": "evidence_missing",
+            "safe_next_action": "repair dry-run before drift detection",
         })
 
     evidence = _build_evidence(manifest_file, checks, evidence_out)
@@ -71,6 +136,29 @@ def _declared_evidence_path(manifest_file: Path) -> str:
     except Exception:
         return DEFAULT_EVIDENCE
     return manifest.get("tooling", {}).get("evidenceOutput", DEFAULT_EVIDENCE)
+
+
+def _declared_state_path(manifest_file: Path) -> str | None:
+    try:
+        manifest, _warnings = load_workflow_manifest(manifest_file)
+    except Exception:
+        return None
+    state = manifest.get("state")
+    if not isinstance(state, dict):
+        return None
+    return state.get("path")
+
+
+def _declared_contract_path(manifest_file: Path) -> str | None:
+    manifest_dir = manifest_file.resolve().parent
+    for candidate in [
+        manifest_dir / "WORKFLOW_CONTRACT.json",
+        manifest_dir.parent / "WORKFLOW_CONTRACT.json",
+        Path.cwd() / "WORKFLOW_CONTRACT.json",
+    ]:
+        if candidate.exists():
+            return str(candidate)
+    return None
 
 
 def _run_check(name: str, command: list[str]) -> dict[str, Any]:
@@ -121,7 +209,7 @@ def _classify_check(name: str, check: dict[str, Any]) -> dict[str, Any]:
             "blocking_reason": "validator_or_parser_failed",
             "safe_next_action": "fix validation harness before redesigning workflow",
         }
-    if name in {"workflow-linter", "gate-engine", "convergence-scorer"}:
+    if name in {"workflow-linter", "gate-engine", "convergence-scorer", "drift-detector", "state-invariant-checker", "design-contract-linter", "pattern-fit-linter"}:
         return {
             "failure_domain": "generated_workflow",
             "is_design_flaw": False,
@@ -169,7 +257,7 @@ def _build_evidence(manifest_file: Path, checks: list[dict[str, Any]], evidence_
         "tools_called": _simulator_tools(checks),
         "files_read": [],
         "files_changed": [],
-        "commands": [{"cmd": " ".join(check["command"]), "status": "pass" if check["passed"] else "fail"} for check in checks],
+        "commands": [_command_evidence(check) for check in checks],
         "tests_passed": [check["name"] for check in checks if check.get("passed")],
         "tests_failed": [check["name"] for check in failures],
         "gates": _gate_results(checks),
@@ -181,6 +269,19 @@ def _build_evidence(manifest_file: Path, checks: list[dict[str, Any]], evidence_
 
 def _check_passed(checks: list[dict[str, Any]], name: str) -> bool:
     return any(check.get("name") == name and check.get("passed") for check in checks)
+
+
+def _command_evidence(check: dict[str, Any]) -> dict[str, str]:
+    command = check.get("command")
+    if isinstance(command, list):
+        cmd = " ".join(command)
+    else:
+        cmd = check.get("name", "unknown-check")
+    if check.get("skipped"):
+        status = "skipped"
+    else:
+        status = "pass" if check.get("passed") else "fail"
+    return {"cmd": cmd, "status": status}
 
 
 def _parsed_for(checks: list[dict[str, Any]], name: str) -> Any:

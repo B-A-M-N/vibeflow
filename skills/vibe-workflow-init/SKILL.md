@@ -2,6 +2,14 @@
 name: vibe-workflow-init
 description: "Run Phase 1 of VibeFlow: interactive intent capture with confidence scoring, visible adversarial review, contradiction detection, and explicit user sign-off before generating VISION.md, PLAN.md, and WORKFLOW_CONTRACT.json."
 version: 2.0.0
+allowed-tools:
+  - ReadFile
+  - WriteFile
+  - EditFile
+  - Bash
+  - Grep
+  - Glob
+user-invocable: true
 ---
 
 You are running the `init` phase of VibeFlow.

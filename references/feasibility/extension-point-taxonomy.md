@@ -7,11 +7,12 @@ Every workflow design must be classified by exactly one feasibility tier before 
 **Runtime surfaces used:** `config.toml`, SKILL.md files, built-in tools, MCP server config
 
 **Whats available:**
-- `config.toml` keys: `api_key`, `active_model`, `auto_approve`, `permission`, `enabled_tools`, `disabled_tools`, `tool_paths`, `[[mcp_servers]]`
+- `config.toml` keys: `api_key`, `active_model`, `auto_approve`, `permission`, `enabled_tools`, `disabled_tools`, `tool_paths`, `[[mcp_servers]]`, and tool-specific config overrides
 - Skills: Create `SKILL.md` files in `.vibe/skills/`, `~/.config/vibe/skills/`, or project `skills/` dirs
-- Skill format: YAML frontmatter (`name`, `description`, `allowed-tools`, `user-invocable`) + markdown body
+- Skill format: YAML frontmatter (`name`, `description`, `allowed-tools`, `user-invocable`) + markdown body. `allowed-tools` / `allowed_tools` is a real tool availability constraint while the skill is active.
 - Built-in tools: ReadFile, WriteFile, EditFile, Bash, Grep, SearchReplace, Glob, LSP, WebFetch, WebSearch
 - MCP servers: Add to `[[mcp_servers]]` in config.toml (stdio, http, streamable-http transports)
+- Mistral Connectors: Remote tool surface integrated by ToolManager through ConnectorRegistry, distinct from MCP server config
 - `VibeConfig` (vibe/core/config.py): All runtime configuration
 
 **Constraints:**
@@ -26,7 +27,7 @@ Every workflow design must be classified by exactly one feasibility tier before 
 
 ## Tier B: Tool-Level Extension
 
-**Runtime surfaces used:** `vibe/core/tools/builtins/`, `vibe/core/tools/mcp/`, `ToolManager` search paths, `BaseTool` contract
+**Runtime surfaces used:** `vibe/core/tools/builtins/`, `vibe/core/tools/mcp/`, Mistral Connectors, `ToolManager` search paths, `BaseTool` contract
 
 **Whats available:**
 - Create Python class inheriting from `BaseTool` in `vibe/core/tools/builtins/` or custom search path
@@ -37,7 +38,12 @@ Every workflow design must be classified by exactly one feasibility tier before 
   - `ToolState`: Persistent state for tool instance
 - Register in tool search path: `config.tool_paths` or default tool dir
 - Tool permission system: `ALWAYS`, `ASK`, `NEVER` + `allowlist`/`denylist`/`sensitive_patterns`
+- `resolve_permission()` for per-invocation permission override before config-level permission
+- `get_result_extra()` for post-tool context injection to the LLM
+- `BaseToolState` for session-local persistent tool state
+- `get_tool_prompt()` / `prompt_path` for tool-specific system prompt guidance
 - MCP tools: Use `MCPRegistry` (vibe/core/tools/mcp/registry.py) + `create_mcp_http_proxy_tool_class` / `create_mcp_stdio_proxy_tool_class`
+- Mistral Connectors: Use ConnectorRegistry-backed remote tools through ToolManager
 - `ToolManager` (vibe/core/tools/manager.py): Discovery, configuration merge, instantiation, permission filtering
 
 **Constraints:**
@@ -56,14 +62,15 @@ Every workflow design must be classified by exactly one feasibility tier before 
 
 **Whats available:**
 - Middleware base: `vibe/core/middleware.py` — subclass `Middleware`
-- Pipeline: `MiddlewarePipeline.before_turn()` runs all registered middleware before each LLM call
+- Pipeline: `MiddlewarePipeline.before_turn()` runs all registered middleware before each LLM call in a multi-step tool loop, not merely once per user message
 - `MiddlewareAction` enum: `CONTINUE` (proceed), `STOP` (halt loop), `INJECT_MESSAGE` (add to message history), `COMPACT` (halt loop, same as STOP)
 - Built-in middleware: TurnLimitMiddleware, PriceLimitMiddleware, AutoCompactMiddleware, ReadOnlyAgentMiddleware, ContextWarningMiddleware
-- Middleware can: modify messages, inject system prompts, halt execution, trigger compaction
+- Middleware can: modify messages, inject system prompts, halt execution, or trigger compaction through distinct `MiddlewareAction` values
+- Pipeline composition: multiple `INJECT_MESSAGE` results compose; `STOP` and `COMPACT` short-circuit later middleware
 - Registration: Add to pipeline via `AgentLoop.__init__()` or config
 
 **Constraints:**
-- Runs ONLY before LLM turns (not after tool execution, not during tool execution)
+- Runs ONLY before LLM turns (not after tool execution, not during tool execution, not on arbitrary events)
 - Cannot change the tool execution logic itself
 - Cannot add new event types (`BaseEvent` hierarchy in vibe/core/types.py)
 - `MiddlewarePipeline` is initialized in `vibe/core/agent_loop.py` AgentLoop

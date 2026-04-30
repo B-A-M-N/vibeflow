@@ -11,6 +11,7 @@ VibeFlow assumes one Claude Code model runs the process. It is organized around 
 3. **plan** - researches DeepWiki/source context as needed and produces implementation file targets, contracts, tests, and validation gates.
 4. **apply** - writes or patches files according to the approved plan, including generation or repair of required workflow tooling.
 5. **validate** - proves the result works through runnable tooling and evidence, or reports exactly why it does not.
+6. **update** - modifies or hardens an existing workflow through narrative intake, artifact scan, ambiguity clarification, approved proposal, edits, record updates, and validation.
 
 Executable workflow manifests use one canonical schema in `references/workflow-manifest-schema.json`. Validation tooling accepts YAML or JSON and normalizes legacy aliases with warnings, but generators should emit canonical fields: `phase.id`, `phase.entry`, `phase.exit`, and `phase.retryLimit`.
 
@@ -78,6 +79,12 @@ Apply this workflow to PR #123
 ```
 Validate this workflow before I use it for ACP PR bot
 
+### Update a workflow
+```
+/vibe-workflow-update
+```
+Review an existing workflow against its goal, clarify the requested change, propose edits for approval, apply approved modifications, update lifecycle records, and validate.
+
 ### Self-test the plugin
 ```bash
 python3 -m unittest discover -s tests -v
@@ -112,6 +119,7 @@ These are the active lifecycle pairs:
 | `/vibe-workflow-plan` | `skills/vibe-workflow-plan/SKILL.md` | research source/docs and produce implementation file targets |
 | `/vibe-workflow-apply` | `skills/vibe-workflow-apply/SKILL.md` | patch or write files from the approved plan |
 | `/vibe-workflow-validate` | `skills/vibe-workflow-validate/SKILL.md` | prove the result works or explain exactly why not |
+| `/vibe-workflow-update` | `skills/vibe-workflow-update/SKILL.md` | change-control loop for modifying or hardening existing workflows |
 | `/vibe-workflow-inspect` | `skills/vibe-workflow-inspect/SKILL.md` | inspect an existing repo/workflow state |
 
 There is no separate `mistral-vibe-workflow` skill. Mistral Vibe knowledge lives in `references/` so every phase uses the same grounding.

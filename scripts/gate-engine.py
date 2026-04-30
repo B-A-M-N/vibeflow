@@ -6,10 +6,33 @@ import sys
 
 from workflow_manifest import load_workflow_manifest
 
+def _sandbox_safe(workflow):
+    sandbox = workflow.get("sandbox")
+    return isinstance(sandbox, dict) and sandbox.get("isolation") in ["container", "tempdir"]
+
+
+def _patch_minimal(workflow):
+    patch = workflow.get("patch", {})
+    if not patch:
+        return True
+    if not isinstance(patch, dict):
+        return False
+    forbidden = patch.get("forbiddenPaths", [])
+    changed = patch.get("changedPaths", [])
+    max_files = patch.get("maxFiles")
+    if not isinstance(forbidden, list) or not isinstance(changed, list):
+        return False
+    if set(changed) & set(forbidden):
+        return False
+    if max_files is not None and len(changed) > int(max_files):
+        return False
+    return True
+
+
 GATE_CHECKS = {
     "structure": lambda w: "phases" in w and len(w.get("phases", [])) > 0,
-    "sandbox-safety": lambda w: w.get("sandbox", {}).get("isolation") in ["container", "tempdir"] or "sandbox" not in w,
-    "patch-minimality": lambda w: True,  # Would check patch size
+    "sandbox-safety": _sandbox_safe,
+    "patch-minimality": _patch_minimal,
     "test-evidence": lambda w: "evidence" in w and "require" in w.get("evidence", {}),
     "no-user-deferral": lambda w: "no_user_deferral_guard" in w.get("middleware", []),
     "convergence": lambda w: all("retryLimit" in p and int(p.get("retryLimit")) >= 0 for p in w.get("phases", [])),

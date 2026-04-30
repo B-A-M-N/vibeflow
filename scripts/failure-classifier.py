@@ -5,16 +5,31 @@ import json
 import sys
 
 FAILURE_TYPES = {
-    "bad workflow topology": ["no-phase-without-exit", "no-unreachable-phase"],
-    "missing Vibe extension point": ["no-middleware-missing-interface"],
-    "invalid middleware hook": ["no-middleware-missing-interface"],
+    "bad workflow topology": [
+        "missing-manifest-section",
+        "phase-missing-id",
+        "phase-missing-entry",
+        "no-phase-without-exit",
+        "duplicate-phase-id",
+        "no-unreachable-phase",
+    ],
+    "missing Vibe extension point": ["middleware-unknown", "tool-unavailable"],
+    "invalid middleware hook": ["middleware-invalid-hook", "middleware-missing-hook", "invalid-middleware-contract"],
     "agent prompt too vague": ["no-final-without-evidence"],
-    "tool unavailable": ["no-unavailable-tool"],
-    "state not persisted": ["state-missing-persist"],
-    "loop has no convergence": ["no-retry-without-max"],
-    "test command missing": ["no-tool-without-validation"],
-    "sandbox unsafe": ["no-sandbox-unsafe"],
-    "target unclear": ["no-relevance-gate"],
+    "tool unavailable": [
+        "missing-tooling-contract",
+        "tooling-contract-missing-field",
+        "tooling-contract-no-required-tools",
+        "tooling-contract-invalid-tool",
+        "phase-tool-not-declared",
+        "tooling-contract-missing-failure-semantics",
+        "tool-unavailable",
+    ],
+    "state not persisted": ["missing-manifest-section"],
+    "loop has no convergence": ["no-retry-without-max", "invalid-retry-limit"],
+    "test command missing": ["missing-commands-contract", "commands-contract-missing-field", "missing-validation-contract", "invalid-validation-contract"],
+    "sandbox unsafe": ["sandbox-safety"],
+    "target unclear": ["relevance"],
 }
 
 REWORK_TEMPLATES = {

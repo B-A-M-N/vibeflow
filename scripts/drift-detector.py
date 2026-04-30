@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from workflow_manifest import load_workflow_manifest
 
-def detect_drift(manifest_path, simulation_path, trace_path=None):
+def detect_drift(manifest_path, simulation_path, trace_path=None, contract_path=None):
     """Detect drift between manifest intent, simulation, and actual traces."""
     manifest, warnings = load_workflow_manifest(manifest_path)
     with open(simulation_path) as f:
@@ -76,6 +76,10 @@ def detect_drift(manifest_path, simulation_path, trace_path=None):
 
     # Check 4: State mutation outside contract
     # (Would need trace data with state_mutation events)
+    contract = _load_contract(contract_path, manifest_path)
+    if contract:
+        _check_contract_surfaces(contract, manifest, drift_report)
+        _check_contract_components(contract, manifest, drift_report)
 
     # Determine severity
     severities = [d["severity"] for d in drift_report["drifts"]]
@@ -93,11 +97,143 @@ def detect_drift(manifest_path, simulation_path, trace_path=None):
     return drift_report
 
 
+def _load_contract(contract_path, manifest_path):
+    candidates = []
+    if contract_path:
+        candidates.append(Path(contract_path))
+    manifest_dir = Path(manifest_path).resolve().parent
+    candidates.extend([
+        manifest_dir / "WORKFLOW_CONTRACT.json",
+        manifest_dir.parent / "WORKFLOW_CONTRACT.json",
+        Path.cwd() / "WORKFLOW_CONTRACT.json",
+    ])
+    for candidate in candidates:
+        if candidate.exists():
+            with candidate.open() as f:
+                return json.load(f)
+    return None
+
+
+def _contract_values(contract, keys):
+    values = []
+    stack = [contract]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            for key, value in item.items():
+                if key in keys:
+                    if isinstance(value, list):
+                        values.extend(value)
+                    else:
+                        values.append(value)
+                elif isinstance(value, (dict, list)):
+                    stack.append(value)
+        elif isinstance(item, list):
+            stack.extend(item)
+    return values
+
+
+def _check_contract_surfaces(contract, manifest, drift_report):
+    selected = _normalize_values(_contract_values(contract, {
+        "selected_runtime_surfaces",
+        "selectedRuntimeSurfaces",
+        "runtime_surfaces",
+        "runtimeSurfaces",
+        "selected_surfaces",
+        "selectedSurfaces",
+    }))
+    if not selected:
+        return
+    manifest_surfaces = set()
+    if manifest.get("tooling", {}).get("requiredTools"):
+        manifest_surfaces.add("tool")
+    if manifest.get("middleware"):
+        manifest_surfaces.add("middleware")
+    if manifest.get("state"):
+        manifest_surfaces.add("state")
+        manifest_surfaces.add("session")
+    if manifest.get("commands") or manifest.get("validation"):
+        manifest_surfaces.add("config")
+    if manifest.get("skills"):
+        manifest_surfaces.add("skill")
+
+    for surface in selected:
+        canonical = _canonical_surface(surface)
+        if canonical and canonical not in manifest_surfaces:
+            drift_report["drifts"].append({
+                "type": "contract_surface_missing",
+                "surface": canonical,
+                "expected": "present in manifest",
+                "actual": "not present",
+                "severity": "high"
+            })
+
+
+def _check_contract_components(contract, manifest, drift_report):
+    selected = _normalize_values(_contract_values(contract, {
+        "approved_components",
+        "approvedComponents",
+        "selected_components",
+        "selectedComponents",
+        "components",
+    }))
+    if not selected:
+        return
+    manifest_components = set(manifest.get("middleware", []))
+    manifest_components.update(
+        tool.get("name")
+        for tool in manifest.get("tooling", {}).get("requiredTools", [])
+        if isinstance(tool, dict) and tool.get("name")
+    )
+    for component in selected:
+        if component and component not in manifest_components:
+            drift_report["drifts"].append({
+                "type": "contract_component_missing",
+                "component": component,
+                "expected": "present in manifest middleware or requiredTools",
+                "actual": "not present",
+                "severity": "medium"
+            })
+
+
+def _normalize_values(values):
+    normalized = []
+    for value in values:
+        if isinstance(value, str):
+            normalized.append(value)
+        elif isinstance(value, dict):
+            for key in ("name", "id", "surface", "type"):
+                if isinstance(value.get(key), str):
+                    normalized.append(value[key])
+                    break
+    return normalized
+
+
+def _canonical_surface(surface):
+    value = str(surface).strip().lower().replace("_", "-")
+    aliases = {
+        "tools": "tool",
+        "tooling": "tool",
+        "middleware-level": "middleware",
+        "skills": "skill",
+        "skill-only": "skill",
+        "sessions": "session",
+        "source-changes": "source",
+    }
+    value = aliases.get(value, value)
+    return value if value in {"config", "skill", "tool", "middleware", "event", "session", "state", "source"} else None
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: drift-detector.py <manifest.json|manifest.yaml> <simulation.json> [trace.json]")
+        print("Usage: drift-detector.py <manifest.json|manifest.yaml> <simulation.json> [trace.json] [WORKFLOW_CONTRACT.json]")
         sys.exit(1)
 
-    result = detect_drift(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
+    result = detect_drift(
+        sys.argv[1],
+        sys.argv[2],
+        sys.argv[3] if len(sys.argv) > 3 else None,
+        sys.argv[4] if len(sys.argv) > 4 else None,
+    )
     print(json.dumps(result, indent=2))
     sys.exit(0 if result["pass"] else 1)

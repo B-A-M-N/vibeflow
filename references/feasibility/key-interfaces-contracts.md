@@ -40,6 +40,12 @@ class BaseTool(Generic[TAgs, TRes, TConfig, TState]):
 - `denylist: list[str]` — patterns that auto-deny
 - `sensitive_patterns: list[str]` — force ASK even if ALWAYS
 
+**Additional tool extension points:**
+- `resolve_permission()` — per-invocation permission override before config-level permission.
+- `get_result_extra()` — post-tool context injection to the LLM alongside the tool result.
+- `BaseToolState` — session-local persistent state cached by the tool manager.
+- `get_tool_prompt()` / `prompt_path` — tool-specific prompt content injected into the system prompt.
+
 ## InvokeContext (vibe/core/tools/base.py:45-57)
 
 Passed to every tool execution:
@@ -56,6 +62,8 @@ class InvokeContext:
 ```
 
 **What this means for tool implementors:** Tools can access agent/skill managers, request approval, ask user, and switch agent profiles through this context.
+
+`switch_agent_callback` is the supported tool-orchestration path for profile switching. Do not model profiles as general autonomous coworkers unless the runtime exposes that mechanism.
 
 ## ConversationMiddleware Protocol (vibe/core/middleware.py)
 
@@ -81,8 +89,10 @@ class MiddlewareAction(Enum):
 **MiddlewarePipeline** (vibe/core/middleware.py:33-48):
 - `register(middleware: Middleware)` — add middleware to pipeline
 - `async before_turn()` — runs all middleware in order, returns first non-CONTINUE action
-- Pipeline is called ONCE per LLM turn (not per tool execution, not per streaming chunk)
-- `COMPACT` must be treated as a halting/early-return action, not as normal continuation.
+- Pipeline is called once per LLM turn in the multi-step loop (not per user message, not per tool execution, not per streaming chunk)
+- `INJECT_MESSAGE` results compose additively.
+- `STOP` and `COMPACT` return immediately and short-circuit later middleware.
+- `COMPACT` must be treated as a distinct halting/early-return action, not as normal continuation or generic injection.
 
 **What this means for middleware implementors:** You can inspect/modify message history, halt the loop, or inject messages — but ONLY before LLM turns.
 

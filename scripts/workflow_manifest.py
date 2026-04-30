@@ -15,6 +15,7 @@ except ImportError:  # pragma: no cover - depends on runtime environment
 
 PHASE_ALIASES = {
     "name": "id",
+    "entry_criteria": "entry",
     "exit_criteria": "exit",
     "retry_budget": "retryLimit",
 }
@@ -31,6 +32,7 @@ def load_workflow_manifest(manifest_path: str | Path) -> tuple[dict[str, Any], l
 
     Legacy aliases are accepted but reported as warnings:
     - name -> id
+    - entry_criteria -> entry
     - exit_criteria -> exit
     - retry_budget -> retryLimit
     """
@@ -57,9 +59,12 @@ def normalize_workflow_manifest(manifest: dict[str, Any]) -> tuple[dict[str, Any
             raise ValueError(f"Phase at index {idx} must be an object")
         phase = dict(phase)
         for old, new in PHASE_ALIASES.items():
-            if old in phase and new not in phase:
-                phase[new] = phase[old]
-                warnings.append(f"phases[{idx}].{old} normalized to phases[{idx}].{new}")
+            if old in phase:
+                if new not in phase:
+                    phase[new] = phase[old]
+                    warnings.append(f"phases[{idx}].{old} normalized to phases[{idx}].{new}")
+                else:
+                    warnings.append(f"phases[{idx}].{old} ignored because canonical phases[{idx}].{new} is present")
         if "retryLimit" in phase:
             phase["retryLimit"] = _coerce_retry_limit(phase["retryLimit"], idx)
         normalized_phases.append(phase)

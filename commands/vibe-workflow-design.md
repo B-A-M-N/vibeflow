@@ -39,6 +39,7 @@ Available feasibility substrate:
 
 - Extension Point Taxonomy / Tiers A-E
 - Key Interfaces & Contracts
+- Runtime Pattern Catalog
 - Workflow Pattern Library
 - Event System Reference
 - Configuration Keys for Workflow Control
@@ -69,6 +70,48 @@ Reference citations are optional. Include them only when a claim is risky, surpr
 
 Use simple text diagrams when useful. Keep diagrams explanatory, not decorative.
 
+## Architecture Sanity Check
+
+Before asking for user approval or generating `DESIGN.md` / `ARCHITECTURE.md`, perform a blocking architecture sanity check. VibeFlow should optimize for workflows with the highest likelihood of success, which means checking the whole runtime composition and not only the obvious component.
+
+Use `references/feasibility/runtime-pattern-catalog.md` to select valid runtime patterns. Do not present the catalog as a list of things to include; use it to choose and justify the smallest correct surface composition.
+
+Evaluate every applicable runtime surface:
+
+- skills/prompts for guidance, sequencing, and workflow instructions
+- config for enabling, disabling, routing, permissions, model/tool settings, and existing runtime controls
+- tools/MCP for executable actions, structured capabilities, and external systems
+- middleware for pre-turn inspection, halt/continue actions, context injection, compaction, and guardrails
+- agents/profiles where the runtime has a concrete agent/profile/tool mechanism; do not invent persona orchestration
+- events/session/state for durable lifecycle state, audit trails, replay, diagnostics, and evidence
+- hooks at verified lifecycle boundaries only
+- source changes for AgentLoop, middleware timing, tool selection, permission semantics, event schema, persistence, or other runtime behavior changes
+
+For each surface, classify it as `selected`, `rejected`, or `not_applicable`, and record:
+
+- why it fits or does not fit
+- what contract it must obey
+- what failure mode it introduces
+- what simpler alternative exists
+- what evidence/source/docs ground the claim
+
+Write this as a design decision contract in `WORKFLOW_CONTRACT.json`. The contract should preserve freedom of design while preventing oversight: selected surfaces require capability, rationale, runtime contract, implementation evidence target, and validation proof; rejected and not-applicable surfaces require rationale but no implementation.
+
+Run these specific checks:
+
+- Middleware placement: verify the behavior belongs before LLM turns; do not claim middleware can intercept during tool execution or after tool results unless source proves it.
+- Middleware semantics: `before_turn(context)` fires before each LLM call; `INJECT_MESSAGE` composes; `STOP` and `COMPACT` short-circuit later middleware.
+- Tool placement: use tools for executable capabilities, stateful session-local capability, `get_result_extra()` post-tool context, tool prompts, permission overrides, and tool-triggered profile switching; do not use tools for changing AgentLoop control policy.
+- Skill placement: skill `allowed_tools` is a real tool availability boundary; check it against required tools.
+- Remote tool placement: distinguish MCP from Mistral Connectors.
+- Agent placement: use agents/profiles only through supported runtime mechanisms, including tool-triggered profile switching via `switch_agent_callback` if applicable.
+- Reasoning visibility: do not depend on visible reasoning unless backend/model support for `ReasoningEvent` is verified.
+- Hook placement: use hooks only where their invocation point is verified; do not make hook noise or side effects part of core workflow correctness.
+- Composition: include every required surface for a cohesive workflow, but reject redundant surfaces when a smaller design satisfies the success criteria.
+- Alternatives: if multiple surfaces could solve a requirement, compare them explicitly and pick one.
+
+Include a short `Architecture Sanity Check` section in the recommendation before the approval question. If a required surface is unverified, classify the design as assumption-based and list verification tasks. Do not write design artifacts until the sanity check has no blocking gaps or the user explicitly approves the known assumptions.
+
 ## Blunt Feasibility Review
 
 Give grounded opinions. Do not flatter bad architecture.
@@ -96,8 +139,8 @@ Do not advance until the user approves a design.
 
 If approved, write:
 
-- `DESIGN.md` - human-readable runtime topology and component explanation
-- `ARCHITECTURE.md` - diagrams, file/component map, and data/control flow
-- update `WORKFLOW_CONTRACT.json` with design status and selected feasibility tier
+- `DESIGN.md` - human-readable runtime topology, component explanation, architecture sanity check decisions, and selected/rejected surfaces
+- `ARCHITECTURE.md` - diagrams, file/component map, middleware/hook/tool/agent boundaries, and data/control flow
+- update `WORKFLOW_CONTRACT.json` with design status, selected feasibility tier, selected runtime surfaces, rejected alternatives, `design.requirements`, `design.surfaceDecisions`, and unresolved assumption-based checks
 
 Then tell the user the next step is `/vibe-workflow-plan`.

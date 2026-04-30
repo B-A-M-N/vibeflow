@@ -28,7 +28,14 @@ Ground the plan in evidence:
 - inspect relevant Mistral Vibe source files
 - consult DeepWiki/source captures when present
 - verify real class names, config keys, event types, middleware actions, tool contracts, and session/logging behavior
+- verify runtime pattern fit using `references/feasibility/runtime-pattern-catalog.md`
+- verify that `DESIGN.md` includes the Architecture Sanity Check decisions for selected, rejected, and assumption-based runtime surfaces
+- verify that `WORKFLOW_CONTRACT.json` includes a design decision contract: runtime requirements map to selected surfaces, selected surfaces include capability/contract/proof expectations, and rejected surfaces have rationale
+- verify that selected patterns are source-grounded: middleware uses `before_turn`, skill enforcement claims use `allowed_tools` or another runtime control, tool permission needs consider BaseToolConfig/resolve_permission, MCP and connectors are not conflated, and reasoning-event requirements verify backend/model support
+- preserve the approved component placement for skills/prompts, config, tools/MCP, middleware, agents/profiles, events/session/state, hooks, and source changes
 - correct stale assumptions before planning
+
+Do not reintroduce a rejected middleware, tool, hook, agent/profile, config, event, session, or source-change approach unless you record it as a scoped design deviation and explain why the approved design no longer works.
 
 ## Output
 

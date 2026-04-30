@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "VibeFlow Executable Workflow Manifest",
   "type": "object",
-  "required": ["name", "goal", "phases", "tooling", "evidence"],
+  "required": ["name", "goal", "phases", "tooling", "state", "middleware", "approval_gates", "evidence", "failure_policy", "commands", "validation"],
   "properties": {
     "name": {
       "type": "string",
@@ -71,6 +71,19 @@
       "type": "array",
       "items": { "type": "string" },
       "default": []
+    },
+    "approval_gates": {
+      "type": "array",
+      "description": "Explicit human or automated approval gates that may block lifecycle progress",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "requires"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string" },
+          "requires": { "type": "string" }
+        }
+      }
     },
     "state": {
       "type": "object",
@@ -149,6 +162,38 @@
           "type": "array",
           "items": { "type": "string" }
         }
+      }
+    },
+    "failure_policy": {
+      "type": "object",
+      "required": ["classification", "onFailure"],
+      "properties": {
+        "classification": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["plugin_tooling", "generated_workflow", "user_spec", "environment", "external_dependency"]
+          }
+        },
+        "onFailure": { "type": "string" }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "required": ["validate"],
+      "properties": {
+        "validate": { "type": "string" },
+        "dryRun": { "type": "string" },
+        "lint": { "type": "string" }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": ["serial", "evidenceRequired", "mutatesWorkflow"],
+      "properties": {
+        "serial": { "type": "boolean" },
+        "evidenceRequired": { "type": "boolean" },
+        "mutatesWorkflow": { "type": "boolean" }
       }
     }
   }

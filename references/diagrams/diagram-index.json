@@ -130,17 +130,27 @@
       "id": "feasibility-substrate",
       "path": "references/diagrams/feasibility-substrate.md",
       "source_capture": "references/feasibility/*.md",
-      "runtime_surfaces": ["feasibility", "design", "plan", "validate"],
+      "runtime_surfaces": ["feasibility", "design", "plan", "validate", "pattern"],
       "source_files": [],
-      "nodes": ["Extension Point Taxonomy", "Key Interfaces & Contracts", "Workflow Pattern Library", "Event System Reference", "Configuration Keys", "Tier Composition Patterns", "Diagnostic & Observability"],
+      "nodes": ["Extension Point Taxonomy", "Key Interfaces & Contracts", "Workflow Pattern Library", "Runtime Pattern Catalog", "Event System Reference", "Configuration Keys", "Tier Composition Patterns", "Diagnostic & Observability"],
       "edges": [
         ["Signed Intent", "Extension Point Taxonomy"],
         ["Signed Intent", "Key Interfaces & Contracts"],
         ["Extension Point Taxonomy", "Approved Runtime Design"],
         ["Key Interfaces & Contracts", "Approved Runtime Design"],
         ["Workflow Pattern Library", "Approved Runtime Design"],
+        ["Runtime Pattern Catalog", "Approved Runtime Design"],
         ["Diagnostic & Observability", "Validation Proof"]
       ]
+    },
+    {
+      "id": "runtime-pattern-catalog",
+      "path": "references/feasibility/runtime-pattern-catalog.md",
+      "source_capture": "references/feasibility/runtime-pattern-catalog.md",
+      "runtime_surfaces": ["skill", "tool", "mcp", "connector", "middleware", "agent-profile", "config", "event", "source", "pattern"],
+      "source_files": ["vibe/core/middleware.py", "vibe/core/tools/base.py", "vibe/core/tools/manager.py", "vibe/core/skills/models.py", "vibe/core/types.py"],
+      "nodes": ["Skill.allowed_tools", "BaseTool", "BaseToolConfig", "get_result_extra", "ToolManager", "ConnectorRegistry", "Middleware.before_turn", "MiddlewareAction", "InvokeContext.switch_agent_callback", "ReasoningEvent"],
+      "edges": [["Skill.allowed_tools", "BaseTool"], ["BaseTool", "BaseToolConfig"], ["BaseTool", "get_result_extra"], ["ToolManager", "ConnectorRegistry"], ["Middleware.before_turn", "MiddlewareAction"], ["BaseTool", "InvokeContext.switch_agent_callback"]]
     },
     {
       "id": "extension-point-taxonomy",

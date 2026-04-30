@@ -10,7 +10,7 @@
     },
     "phase": {
       "type": "string",
-      "enum": ["init-draft", "init-approved", "design-approved", "plan-approved", "applied", "validated"],
+      "enum": ["init-draft", "init-approved", "design-approved", "plan-approved", "applied", "validated", "update-proposed", "update-applied"],
       "description": "Current lifecycle phase"
     },
     "intent": {
@@ -64,7 +64,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["config", "skill", "tool", "middleware", "event", "session", "source", "backend-boundary", "not-feasible"]
+                "enum": ["config", "skill", "tool", "mcp", "connector", "middleware", "agent-profile", "hook", "event", "session", "source", "backend-boundary", "not-feasible"]
           }
         },
         "feasibility_tier": {
@@ -83,6 +83,65 @@
               "source_files": { "type": "array", "items": { "type": "string" } },
               "contracts": { "type": "array", "items": { "type": "string" } },
               "risks": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "requirements": {
+          "type": "array",
+          "description": "Requirement-to-surface traceability. This preserves design freedom while making every selected surface prove why it exists.",
+          "items": {
+            "type": "object",
+            "required": ["id", "description"],
+            "properties": {
+              "id": { "type": "string" },
+              "description": { "type": "string" },
+              "status": {
+                "type": "string",
+                "enum": ["runtime", "prompt-only", "non-runtime", "out-of-scope"],
+                "default": "runtime"
+              },
+              "selected_surfaces": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "success_proof": { "type": "string" }
+            }
+          }
+        },
+        "surfaceDecisions": {
+          "type": "array",
+          "description": "Decision quality contract for runtime surfaces. Does not constrain implementation shape; it requires rationale, contracts, and proof for selected surfaces.",
+          "items": {
+            "type": "object",
+            "required": ["surface", "status", "reason"],
+            "properties": {
+              "surface": {
+                "type": "string",
+                "enum": ["config", "skill", "tool", "mcp", "connector", "middleware", "agent-profile", "hook", "event", "session", "state", "source", "backend-boundary", "not-feasible"]
+              },
+              "status": {
+                "type": "string",
+                "enum": ["selected", "rejected", "not_applicable"]
+              },
+              "reason": { "type": "string" },
+              "requiredCapabilities": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "contracts": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "implementationEvidence": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "validationEvidence": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "riskIfWrong": { "type": "string" },
+              "reconsiderIf": { "type": "string" }
             }
           }
         }
@@ -105,6 +164,42 @@
         "checks_run": { "type": "array", "items": { "type": "string" } },
         "proof_points": { "type": "array", "items": { "type": "string" } },
         "failures": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "updates": {
+      "type": "array",
+      "description": "Approved workflow change-control records.",
+      "items": {
+        "type": "object",
+        "required": ["summary", "reason", "approved", "files_changed"],
+        "properties": {
+          "summary": { "type": "string" },
+          "reason": { "type": "string" },
+          "approved": { "type": "boolean" },
+          "ambiguity_resolved": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "files_changed": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "surface_decisions_changed": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "validation": {
+            "type": "object",
+            "properties": {
+              "commands": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "verdict": { "type": "string", "enum": ["READY", "NEEDS_REWORK", "FAILED"] },
+              "notes": { "type": "string" }
+            }
+          }
+        }
       }
     }
   }

@@ -64,4 +64,8 @@ Inspect current repo/workflow and map runtime surfaces, artifacts, and validatio
    - [list any problems: missing files, impossible transitions, dead-ends]
    ```
 
-7. Ask user if they want to generate a workflow plan based on this inspection.
+7. Persist the report as `INSPECTION.md` and update `WORKFLOW_CONTRACT.json` with inspection status, discovered surfaces/components, manifest/tooling mismatches, confidence score, and feasibility tier assessment when the contract exists.
+
+8. Include adversarial checks for skill discoverability frontmatter (`name`, `description`, `allowed-tools`, `user-invocable`), declared tool usage, middleware `before_turn()` compatibility, and lifecycle drift against approved runtime surfaces.
+
+9. Ask user if they want to generate a workflow plan based on this inspection.

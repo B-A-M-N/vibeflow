@@ -1,7 +1,15 @@
 ---
 name: vibe-workflow-inspect
 description: Use when the user wants to inspect a repo or workflow, map existing skills/tools/middleware/config/source surfaces, understand lifecycle artifacts, or audit current setup.
-version: 0.1.0
+version: 2.0.0
+allowed-tools:
+  - ReadFile
+  - WriteFile
+  - EditFile
+  - Bash
+  - Grep
+  - Glob
+user-invocable: true
 ---
 
 Inspect current repo/workflow and map skills, middleware, tools, config, source surfaces, artifacts, and validation state.
@@ -65,4 +73,12 @@ Inspect current repo/workflow and map skills, middleware, tools, config, source 
    - [list any problems: missing files, impossible transitions, dead-ends]
    ```
 
-7. Ask user if they want to generate a workflow plan based on this inspection.
+7. Persist the inspection as `INSPECTION.md` and update `WORKFLOW_CONTRACT.json` with inspection status, discovered surfaces, discovered components, missing frontmatter fields, manifest/tooling mismatches, confidence score, and feasibility tier assessment. If `WORKFLOW_CONTRACT.json` does not exist, say so and include the data in `INSPECTION.md` only.
+
+8. Include adversarial review:
+   - skill discoverability: each `SKILL.md` has `name`, `description`, `allowed-tools`, and `user-invocable`
+   - tool contract: tools referenced by phases are declared in `tooling.requiredTools`
+   - middleware contract: middleware uses `before_turn()` only
+   - lifecycle drift: approved design surfaces in `WORKFLOW_CONTRACT.json` still match discovered implementation surfaces
+
+9. Ask user if they want to generate a workflow plan based on this inspection.

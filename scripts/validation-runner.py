@@ -20,12 +20,13 @@ DEFAULT_REPORT_DIR = ".vibe-workflow/reports"
 
 def run_validation(manifest_path: str, evidence_path: str | None = None, report_dir: str = DEFAULT_REPORT_DIR) -> dict[str, Any]:
     manifest_file = Path(manifest_path)
-    evidence_out = evidence_path or _declared_evidence_path(manifest_file)
+    evidence_out = _resolve_manifest_relative(manifest_file, evidence_path or _declared_evidence_path(manifest_file))
+    resolved_report_dir = _resolve_manifest_relative(manifest_file, report_dir)
     checks: list[dict[str, Any]] = []
 
     lint = _run_check("workflow-linter", [sys.executable, str(ROOT / "workflow-linter.py"), str(manifest_file)])
     checks.append(lint)
-    lint_results_path = str(Path(report_dir) / "lint-results.json")
+    lint_results_path = str(Path(resolved_report_dir) / "lint-results.json")
     if isinstance(lint.get("parsed"), dict):
         write_json(lint_results_path, lint["parsed"])
         checks.append(_run_check(
@@ -50,6 +51,7 @@ def run_validation(manifest_path: str, evidence_path: str | None = None, report_
 
     state_path = _declared_state_path(manifest_file)
     if state_path:
+        state_path = _resolve_manifest_relative(manifest_file, state_path)
         checks.append(_run_check(
             "state-invariant-checker",
             [sys.executable, str(ROOT / "state-invariant-checker.py"), state_path, str(manifest_file)],
@@ -120,7 +122,7 @@ def run_validation(manifest_path: str, evidence_path: str | None = None, report_
     evidence = _build_evidence(manifest_file, checks, evidence_out)
     write_json(evidence_out, evidence)
 
-    reporter = _run_check("evidence-reporter", [sys.executable, str(ROOT / "evidence-reporter.py"), evidence_out, report_dir])
+    reporter = _run_check("evidence-reporter", [sys.executable, str(ROOT / "evidence-reporter.py"), evidence_out, resolved_report_dir])
     checks.append(reporter)
 
     evidence = _build_evidence(manifest_file, checks, evidence_out)
@@ -136,6 +138,13 @@ def _declared_evidence_path(manifest_file: Path) -> str:
     except Exception:
         return DEFAULT_EVIDENCE
     return manifest.get("tooling", {}).get("evidenceOutput", DEFAULT_EVIDENCE)
+
+
+def _resolve_manifest_relative(manifest_file: Path, path: str | Path) -> str:
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return str(candidate)
+    return str((manifest_file.resolve().parent / candidate).resolve())
 
 
 def _declared_state_path(manifest_file: Path) -> str | None:

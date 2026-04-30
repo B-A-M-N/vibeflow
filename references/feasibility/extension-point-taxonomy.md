@@ -58,7 +58,7 @@ Every workflow design must be classified by exactly one feasibility tier before 
 
 ## Tier C: Middleware-Level Extension
 
-**Runtime surfaces used:** `vibe/core/middleware.py`, `MiddlewarePipeline`, `Middleware` base class, `MiddlewareAction`
+**Runtime surfaces used:** `vibe/core/middleware.py`, `MiddlewarePipeline`, `Middleware` base class, `MiddlewareAction`, registration code in the runtime/AgentLoop setup
 
 **Whats available:**
 - Middleware base: `vibe/core/middleware.py` — subclass `Middleware`
@@ -67,6 +67,7 @@ Every workflow design must be classified by exactly one feasibility tier before 
 - Built-in middleware: TurnLimitMiddleware, PriceLimitMiddleware, AutoCompactMiddleware, ReadOnlyAgentMiddleware, ContextWarningMiddleware
 - Middleware can: modify messages, inject system prompts, halt execution, or trigger compaction through distinct `MiddlewareAction` values
 - Pipeline composition: multiple `INJECT_MESSAGE` results compose; `STOP` and `COMPACT` short-circuit later middleware
+- Custom middleware is valid when implemented as Python source/runtime-code and registered into the pipeline. Multiple custom middleware are valid if ordering and short-circuit behavior are designed explicitly.
 - Registration: Add to pipeline via `AgentLoop.__init__()` or config
 
 **Constraints:**

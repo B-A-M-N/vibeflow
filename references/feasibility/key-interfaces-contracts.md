@@ -71,9 +71,9 @@ All middleware must implement:
 
 ```python
 class Middleware(ABC):
-    async def before_turn(self, messages: MessageList) -> MiddlewareAction:
-        # Inspect/modify messages
-        # Return MiddlewareAction
+    async def before_turn(self, context: ConversationContext) -> MiddlewareResult:
+        # Inspect conversation context
+        # Return MiddlewareResult with a MiddlewareAction
         ...
 ```
 
@@ -94,7 +94,7 @@ class MiddlewareAction(Enum):
 - `STOP` and `COMPACT` return immediately and short-circuit later middleware.
 - `COMPACT` must be treated as a distinct halting/early-return action, not as normal continuation or generic injection.
 
-**What this means for middleware implementors:** You can inspect/modify message history, halt the loop, or inject messages — but ONLY before LLM turns.
+**What this means for middleware implementors:** Custom middleware is valid, and multiple middleware can be composed. It must be implemented as runtime/source code and registered with the pipeline. You can inspect conversation context, halt the loop, request compaction, or inject messages, but only before LLM turns.
 
 ## ConversationContext (vibe/core/types.py)
 

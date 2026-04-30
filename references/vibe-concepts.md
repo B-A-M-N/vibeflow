@@ -18,14 +18,16 @@ Before proposing code, first build an internal model of Mistral Vibe workflows u
 - Skill activation: description matching → load SKILL.md → execute instructions
 - Skills can reference scripts/, references/, examples/
 
-### Middleware Hooks
-- Intercept behavior between phases
-- Examples: checkpoint_enforcer, no_user_deferral_guard, workflow_phase_guard
-- Middleware can block, modify, or redirect workflow execution
-- Safe extension points vs. requires source patches
+### Middleware
+- Custom middleware is valid when implemented as runtime/source code and registered with the pipeline
+- Multiple middleware can be composed, but ordering matters because STOP and COMPACT short-circuit later middleware
+- Active behavior is `before_turn(context)` only, before each LLM call in a multi-step loop
+- Middleware can continue, stop, inject messages, or trigger compaction before LLM turns
+- Middleware cannot intercept during tool execution, after tool results, or arbitrary events unless the runtime source is changed to add that boundary
 
 ### Tool Execution Lifecycle
-- Tool call requested → middleware can intercept → tool executes → result returned
+- Tool call requested → permission/config checked → tool executes → result returned
+- Middleware has already run before the LLM produced the tool call; it does not wrap the tool call itself
 - Tools: Bash, Read, Write, Edit, WebFetch, LSP, etc.
 - Mock tools for dry-run: capture calls without executing
 

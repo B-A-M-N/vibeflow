@@ -19,7 +19,7 @@ flowchart TB
   end
 
   subgraph Middleware["ConversationMiddleware Protocol"]
-    MiddlewareBase["Middleware.before_turn(messages)"]
+    MiddlewareBase["ConversationMiddleware.before_turn(context) + reset(reason)"]
     MiddlewareAction["MiddlewareAction\nCONTINUE, STOP,\nINJECT_MESSAGE, COMPACT"]
     MessageList["MessageList"]
     MiddlewareBase --> MessageList

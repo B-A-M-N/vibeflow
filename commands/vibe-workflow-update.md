@@ -34,15 +34,16 @@ Missing artifacts do not automatically block the update. Continue with best avai
 1. Intake the user's problem or requested adjustment in narrative form.
 2. Scan the directory and lifecycle artifacts.
 3. Compare current artifacts against the signed goal, success criteria, design decision contract, implementation evidence, and validation evidence.
-4. Decide whether ambiguity blocks a high-quality proposal.
-5. If blocked, ask focused clarification:
+4. Check whether the workflow missed native runtime primitives: `ask_user_question`, `exit_plan_mode`, `todo`, scratchpad, `task`, `webfetch`, `websearch`, AGENTS.md, `POST_AGENT_TURN` hooks, MCP `prompt`/`sampling_enabled`, thinking/compaction settings, or programmatic output.
+5. Decide whether ambiguity blocks a high-quality proposal.
+6. If blocked, ask focused clarification:
    - what is ambiguous
    - why it matters
    - what might go wrong if guessed
    - 2-3 contextual examples of possible meanings
-6. After ambiguity is reasonably resolved, present proposed edits and ask for approval.
-7. Only after approval, edit files and update lifecycle records.
-8. Run relevant validation and report the result.
+7. After ambiguity is reasonably resolved, present proposed edits and ask for approval.
+8. Only after approval, edit files and update lifecycle records.
+9. Run relevant validation and report the result.
 
 ## Update Types
 

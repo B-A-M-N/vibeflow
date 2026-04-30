@@ -69,9 +69,10 @@ def lint_design_contract(manifest_path: str, contract_path: str | None = None) -
 
 def _resolve_contract_path(manifest_path: str, contract_path: str | None) -> Path | None:
     candidates = []
-    if contract_path:
-        candidates.append(Path(contract_path))
     manifest_dir = Path(manifest_path).resolve().parent
+    if contract_path:
+        supplied = Path(contract_path)
+        candidates.append(supplied if supplied.is_absolute() else manifest_dir / supplied)
     candidates.extend([
         manifest_dir / "WORKFLOW_CONTRACT.json",
         manifest_dir.parent / "WORKFLOW_CONTRACT.json",
@@ -217,7 +218,7 @@ def _manifest_supports_surface(manifest: dict[str, Any], surface: str) -> bool:
         return bool(manifest.get("middleware"))
     if surface == "skill":
         return True
-    if surface in {"mcp", "connector", "agent-profile", "hook", "event", "source", "backend-boundary", "not-feasible"}:
+    if surface in {"mcp", "connector", "agent-profile", "subagent", "hook", "programmatic", "scratchpad", "agents-md", "todo", "user-question", "plan-mode", "event", "source", "backend-boundary", "not-feasible"}:
         return True
     return False
 
@@ -245,8 +246,20 @@ def _canonical_surface(surface: Any) -> str | None:
         "agents": "agent-profile",
         "profiles": "agent-profile",
         "agent": "agent-profile",
+        "subagents": "subagent",
+        "task": "subagent",
+        "task-tool": "subagent",
         "middleware-level": "middleware",
         "hooks": "hook",
+        "post-agent-turn": "hook",
+        "programmatic-mode": "programmatic",
+        "streaming-output": "programmatic",
+        "agents.md": "agents-md",
+        ".vibe/agents.md": "agents-md",
+        "ask-user-question": "user-question",
+        "ask_user_question": "user-question",
+        "exit-plan-mode": "plan-mode",
+        "exit_plan_mode": "plan-mode",
         "events": "event",
         "sessions": "session",
         "source-changes": "source",
@@ -260,7 +273,14 @@ def _canonical_surface(surface: Any) -> str | None:
         "connector",
         "middleware",
         "agent-profile",
+        "subagent",
         "hook",
+        "programmatic",
+        "scratchpad",
+        "agents-md",
+        "todo",
+        "user-question",
+        "plan-mode",
         "event",
         "session",
         "state",

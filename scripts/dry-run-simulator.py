@@ -194,6 +194,7 @@ def _write_state_snapshot(workflow, timeline, gates, manifest_path):
     state_path = state.get("path") if isinstance(state, dict) else None
     if not state_path:
         return
+    state_path = _resolve_manifest_relative(manifest_path, state_path)
     retry_counts = {}
     for event in timeline:
         if event.get("event") == "retry":
@@ -210,6 +211,13 @@ def _write_state_snapshot(workflow, timeline, gates, manifest_path):
     }
     write_json(state_path, snapshot)
 
+
+def _resolve_manifest_relative(manifest_path, path):
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    return Path(manifest_path).resolve().parent / candidate
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: dry-run-simulator.py <manifest.json|manifest.yaml> [scenario] [evidence_out]")
@@ -221,6 +229,7 @@ if __name__ == "__main__":
     result = simulate_workflow(manifest, scenario)
     workflow, _warnings = load_workflow_manifest(manifest)
     evidence_out = sys.argv[3] if len(sys.argv) > 3 else workflow.get("tooling", {}).get("evidenceOutput", ".vibe-workflow/evidence/latest.json")
+    evidence_out = _resolve_manifest_relative(manifest, evidence_out)
     result["evidence_path"] = write_json(evidence_out, result)
     print(json.dumps(result, indent=2))
     sys.exit(0 if result["verdict"] == "READY" else 1)

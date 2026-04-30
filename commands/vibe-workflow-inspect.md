@@ -29,7 +29,7 @@ Inspect current repo/workflow and map runtime surfaces, artifacts, and validatio
 
 5. After reading, summarize:
    - Where workflow control actually happens
-   - Where middleware can intercept behavior
+   - Whether middleware behavior belongs at the `before_turn(context)` boundary
    - Where tools are invoked
    - Where state should be stored
    - What extension points are safe to use

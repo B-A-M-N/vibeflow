@@ -29,9 +29,11 @@ Ground the plan in evidence:
 - consult DeepWiki/source captures when present
 - verify real class names, config keys, event types, middleware actions, tool contracts, and session/logging behavior
 - verify runtime pattern fit using `references/feasibility/runtime-pattern-catalog.md`
+- verify native workflow tool fit: `ask_user_question`, `exit_plan_mode`, `todo`, `task`, scratchpad, `webfetch`, `websearch`, AGENTS.md, hooks, and programmatic output
 - verify that `DESIGN.md` includes the Architecture Sanity Check decisions for selected, rejected, and assumption-based runtime surfaces
 - verify that `WORKFLOW_CONTRACT.json` includes a design decision contract: runtime requirements map to selected surfaces, selected surfaces include capability/contract/proof expectations, and rejected surfaces have rationale
 - verify that selected patterns are source-grounded: middleware uses `before_turn`, skill enforcement claims use `allowed_tools` or another runtime control, tool permission needs consider BaseToolConfig/resolve_permission, MCP and connectors are not conflated, and reasoning-event requirements verify backend/model support
+- verify that hooks are `POST_AGENT_TURN` only, subagents do not own file writes, MCP `sampling_enabled` is justified, and CI-style validation uses machine-readable output
 - preserve the approved component placement for skills/prompts, config, tools/MCP, middleware, agents/profiles, events/session/state, hooks, and source changes
 - correct stale assumptions before planning
 

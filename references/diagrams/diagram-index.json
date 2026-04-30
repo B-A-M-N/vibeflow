@@ -147,10 +147,10 @@
       "id": "runtime-pattern-catalog",
       "path": "references/feasibility/runtime-pattern-catalog.md",
       "source_capture": "references/feasibility/runtime-pattern-catalog.md",
-      "runtime_surfaces": ["skill", "tool", "mcp", "connector", "middleware", "agent-profile", "config", "event", "source", "pattern"],
-      "source_files": ["vibe/core/middleware.py", "vibe/core/tools/base.py", "vibe/core/tools/manager.py", "vibe/core/skills/models.py", "vibe/core/types.py"],
-      "nodes": ["Skill.allowed_tools", "BaseTool", "BaseToolConfig", "get_result_extra", "ToolManager", "ConnectorRegistry", "Middleware.before_turn", "MiddlewareAction", "InvokeContext.switch_agent_callback", "ReasoningEvent"],
-      "edges": [["Skill.allowed_tools", "BaseTool"], ["BaseTool", "BaseToolConfig"], ["BaseTool", "get_result_extra"], ["ToolManager", "ConnectorRegistry"], ["Middleware.before_turn", "MiddlewareAction"], ["BaseTool", "InvokeContext.switch_agent_callback"]]
+      "runtime_surfaces": ["skill", "tool", "mcp", "connector", "middleware", "agent-profile", "subagent", "hook", "programmatic", "scratchpad", "agents-md", "todo", "user-question", "plan-mode", "config", "event", "source", "pattern"],
+      "source_files": ["vibe/core/middleware.py", "vibe/core/tools/base.py", "vibe/core/tools/manager.py", "vibe/core/skills/models.py", "vibe/core/types.py", "vibe/core/config/_settings.py"],
+      "nodes": ["Skill.allowed_tools", "BaseTool", "BaseToolConfig", "get_result_extra", "ToolManager", "ConnectorRegistry", "ask_user_question", "exit_plan_mode", "todo", "task", "scratchpad", "POST_AGENT_TURN", "transcript_path", "programmatic_output", "Middleware.before_turn", "MiddlewareAction", "InvokeContext.switch_agent_callback", "ReasoningEvent", "AGENTS.md"],
+      "edges": [["Skill.allowed_tools", "BaseTool"], ["BaseTool", "BaseToolConfig"], ["BaseTool", "get_result_extra"], ["ToolManager", "ConnectorRegistry"], ["task", "subagent"], ["exit_plan_mode", "agent-profile"], ["POST_AGENT_TURN", "transcript_path"], ["Middleware.before_turn", "MiddlewareAction"], ["BaseTool", "InvokeContext.switch_agent_callback"], ["AGENTS.md", "system_prompt"]]
     },
     {
       "id": "extension-point-taxonomy",

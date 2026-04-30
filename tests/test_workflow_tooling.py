@@ -372,6 +372,36 @@ class WorkflowToolingTests(unittest.TestCase):
             self.assertIn("design-contract-linter", [check["name"] for check in data["checks_run"]])
             self.assertIn("pattern-fit-linter", [check["name"] for check in data["checks_run"]])
 
+    def test_validation_runner_resolves_declared_paths_relative_to_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "workflow-project"
+            project.mkdir()
+            path = project / "workflow.yaml"
+            state = project / "state.json"
+            report_dir = project / ".vibe-workflow/reports"
+            contract = project / "WORKFLOW_CONTRACT.json"
+            manifest = CANONICAL.format(
+                evidence=".vibe-workflow/evidence/latest.json",
+                state="state.json",
+            )
+            path.write_text(manifest)
+            state.write_text(json.dumps({
+                "currentPhase": "intake",
+                "retryCounts": {"intake": 0},
+                "evidence": [],
+                "gateDecisions": [],
+            }))
+            contract.write_text(json.dumps(SELECTED_TOOL_CONTRACT))
+
+            proc = run_script(ROOT / "scripts/validation-runner.py", path, cwd=ROOT)
+
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            evidence = project / ".vibe-workflow/evidence/latest.json"
+            self.assertTrue(evidence.exists())
+            data = json.loads(evidence.read_text())
+            self.assertEqual(data["evidence_path"], str(evidence.resolve()))
+            self.assertTrue((report_dir / "lint-results.json").exists())
+
     def test_update_skill_and_registry_are_discoverable(self):
         skill = ROOT / "skills/vibe-workflow-update/SKILL.md"
         command = ROOT / "commands/vibe-workflow-update.md"
@@ -386,6 +416,8 @@ class WorkflowToolingTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         registry = json.loads(proc.stdout)
         self.assertIn("vibe-workflow-update", registry["skills"])
+        for tool in ["ask_user_question", "exit_plan_mode", "todo", "task", "webfetch", "websearch"]:
+            self.assertIn(tool, registry["tools"])
 
     def test_pattern_fit_rejects_post_tool_middleware(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -441,6 +473,62 @@ class WorkflowToolingTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
             data = json.loads(proc.stdout)
             self.assertIn("skill-tool-allowed-tools-unchecked", {f["rule"] for f in data["findings"]})
+
+    def test_pattern_fit_rejects_invalid_hook_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            contract = Path(tmp) / "WORKFLOW_CONTRACT.json"
+            contract_data = {
+                **SELECTED_TOOL_CONTRACT,
+                "design": {
+                    **SELECTED_TOOL_CONTRACT["design"],
+                    "surfaceDecisions": [
+                        {
+                            "surface": "hook",
+                            "status": "selected",
+                            "reason": "Use a pre-turn hook to block bad output.",
+                            "requiredCapabilities": ["pre-turn validation"],
+                            "contracts": ["pre-turn hook"],
+                            "implementationEvidence": ["hook.sh"],
+                        }
+                    ],
+                },
+            }
+            contract.write_text(json.dumps(contract_data))
+
+            proc = run_script(ROOT / "scripts/pattern-fit-linter.py", contract)
+
+            self.assertNotEqual(proc.returncode, 0)
+            data = json.loads(proc.stdout)
+            rules = {f["rule"] for f in data["findings"]}
+            self.assertIn("hook-type-unverified", rules)
+            self.assertIn("hook-invalid-boundary", rules)
+
+    def test_pattern_fit_rejects_subagent_file_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            contract = Path(tmp) / "WORKFLOW_CONTRACT.json"
+            contract_data = {
+                **SELECTED_TOOL_CONTRACT,
+                "design": {
+                    **SELECTED_TOOL_CONTRACT["design"],
+                    "surfaceDecisions": [
+                        {
+                            "surface": "subagent",
+                            "status": "selected",
+                            "reason": "A validator subagent will edit files and write reports.",
+                            "requiredCapabilities": ["delegated artifact generation"],
+                            "contracts": ["task tool"],
+                            "implementationEvidence": ["agents/validator.md"],
+                        }
+                    ],
+                },
+            }
+            contract.write_text(json.dumps(contract_data))
+
+            proc = run_script(ROOT / "scripts/pattern-fit-linter.py", contract)
+
+            self.assertNotEqual(proc.returncode, 0)
+            data = json.loads(proc.stdout)
+            self.assertIn("subagent-assigned-file-writing", {f["rule"] for f in data["findings"]})
 
 
 if __name__ == "__main__":

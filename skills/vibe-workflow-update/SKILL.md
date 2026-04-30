@@ -66,6 +66,7 @@ Look for:
 - implemented surfaces that were not selected
 - validation failures, stale evidence, or drift reports
 - canonical schema or frontmatter problems
+- missed native runtime primitives such as `ask_user_question`, `exit_plan_mode`, `todo`, scratchpad, `task`, `webfetch`, `websearch`, AGENTS.md, `POST_AGENT_TURN` hooks, or programmatic output
 
 Use existing scripts when applicable:
 
@@ -110,6 +111,15 @@ Classify the update type:
 - documentation correction: records are stale but behavior is correct
 
 Do not assume every update requires redesign. Choose the smallest lifecycle layer that can honestly resolve the issue.
+
+When hardening an existing workflow, explicitly check whether an invented mechanism should be replaced by a native one:
+
+- generic approval prompt -> `ask_user_question` or `exit_plan_mode`
+- file-based session checklist -> `todo`
+- project-directory temporary output -> scratchpad
+- delegated file writer -> parent writes, subagent returns text
+- custom pre/tool hook -> impossible without source change; `POST_AGENT_TURN` only
+- manual CI evidence -> programmatic `--output streaming` / `--output json`
 
 ## Proposed Update
 

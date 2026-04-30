@@ -81,8 +81,12 @@ Evaluate every applicable runtime surface:
 - skills/prompts for guidance, sequencing, and workflow instructions
 - config for enabling, disabling, routing, permissions, model/tool settings, and existing runtime controls
 - tools/MCP for executable actions, structured capabilities, and external systems
+- built-in workflow tools for structured user questions, plan-mode exit, todo tracking, subagent tasks, webfetch, and websearch
 - middleware for pre-turn inspection, halt/continue actions, context injection, compaction, and guardrails
 - agents/profiles where the runtime has a concrete agent/profile/tool mechanism; do not invent persona orchestration
+- scratchpad for temporary artifacts
+- AGENTS.md for persistent context injection
+- programmatic mode for CI/CD and machine-readable validation output
 - events/session/state for durable lifecycle state, audit trails, replay, diagnostics, and evidence
 - hooks at verified lifecycle boundaries only
 - source changes for AgentLoop, middleware timing, tool selection, permission semantics, event schema, persistence, or other runtime behavior changes
@@ -102,11 +106,16 @@ Run these specific checks:
 - Middleware placement: verify the behavior belongs before LLM turns; do not claim middleware can intercept during tool execution or after tool results unless source proves it.
 - Middleware semantics: `before_turn(context)` fires before each LLM call; `INJECT_MESSAGE` composes; `STOP` and `COMPACT` short-circuit later middleware.
 - Tool placement: use tools for executable capabilities, stateful session-local capability, `get_result_extra()` post-tool context, tool prompts, permission overrides, and tool-triggered profile switching; do not use tools for changing AgentLoop control policy.
+- Built-in workflow tools: use `ask_user_question` for structured approval/intake/clarification, `exit_plan_mode` for plan-to-implementation, `todo` for session progress, `task` for read-only subagents, and `webfetch`/`websearch` for external research.
 - Skill placement: skill `allowed_tools` is a real tool availability boundary; check it against required tools.
 - Remote tool placement: distinguish MCP from Mistral Connectors.
+- MCP placement: use `prompt` for usage hints and justify `sampling_enabled`.
 - Agent placement: use agents/profiles only through supported runtime mechanisms, including tool-triggered profile switching via `switch_agent_callback` if applicable.
+- Subagent placement: subagents return text; parent writes project files.
+- Hook placement: `POST_AGENT_TURN` only, with exit code 2 for retry and `transcript_path` available for full-session review.
+- Persistence placement: use AGENTS.md for stable injected context, todo for session state, scratchpad for temp artifacts, and files for durable audit/evidence.
+- Programmatic placement: use `--output streaming` or `--output json` for CI/CD evidence.
 - Reasoning visibility: do not depend on visible reasoning unless backend/model support for `ReasoningEvent` is verified.
-- Hook placement: use hooks only where their invocation point is verified; do not make hook noise or side effects part of core workflow correctness.
 - Composition: include every required surface for a cohesive workflow, but reject redundant surfaces when a smaller design satisfies the success criteria.
 - Alternatives: if multiple surfaces could solve a requirement, compare them explicitly and pick one.
 

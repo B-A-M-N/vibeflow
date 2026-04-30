@@ -57,6 +57,34 @@ def lint_pattern_fit(contract_path: str) -> dict[str, Any]:
             "MCP and Mistral Connectors are both selected, but the design does not distinguish their different runtime semantics.",
         ))
 
+    if "plan-mode" in selected_surfaces and "exit_plan_mode" not in all_text:
+        findings.append(_finding(
+            "plan-mode-without-exit-plan-mode",
+            "warning",
+            "Plan-to-implementation gates should use exit_plan_mode unless the design justifies a different approval mechanism.",
+        ))
+
+    if "hook" in selected_surfaces and "post_agent_turn" not in all_text and "post agent turn" not in all_text:
+        findings.append(_finding(
+            "hook-type-unverified",
+            "error",
+            "Mistral Vibe only exposes POST_AGENT_TURN hooks; hook designs must name that boundary.",
+        ))
+
+    if "programmatic" in selected_surfaces and "--output streaming" not in all_text and "--output json" not in all_text:
+        findings.append(_finding(
+            "programmatic-output-mode-missing",
+            "warning",
+            "Programmatic workflows should specify --output streaming or --output json for machine-readable evidence.",
+        ))
+
+    if "mcp" in selected_surfaces and "sampling_enabled" in all_text and "justify" not in all_text and "risk" not in all_text:
+        findings.append(_finding(
+            "mcp-sampling-enabled-unjustified",
+            "warning",
+            "MCP sampling_enabled lets the server request LLM completions; designs should justify this capability.",
+        ))
+
     if "reasoning" in req_text and "model" not in all_text and "backend" not in all_text and "reasoningevent" not in all_text:
         findings.append(_finding(
             "reasoning-event-runtime-fit-unchecked",
@@ -83,6 +111,13 @@ def _check_decision(decision: dict[str, str], findings: list[dict[str, Any]]) ->
                 "middleware-invalid-hook",
                 "error",
                 "Middleware only supports before_turn(context) plus reset(); it cannot run pre/post/during tool or on arbitrary events.",
+                surface,
+            ))
+        if "custom" in text and not any(token in text for token in ["source", "runtime-code", "runtime code", "registered", "registration", "agentloop", "pipeline"]):
+            findings.append(_finding(
+                "custom-middleware-requires-source-change",
+                "error",
+                "Custom middleware is valid, but it must be implemented/registered as runtime code; it is not a skill/config/hook-only extension.",
                 surface,
             ))
         if "compact" in text and "middlewareaction.compact" not in text and "compact action" not in text:
@@ -126,6 +161,13 @@ def _check_decision(decision: dict[str, str], findings: list[dict[str, Any]]) ->
                 "Tool permission designs should consider resolve_permission() or BaseToolConfig permission/allowlist/denylist/sensitive_patterns.",
                 surface,
             ))
+        if "ask user" in text and "ask_user_question" not in text:
+            findings.append(_finding(
+                "generic-user-question-tool",
+                "warning",
+                "Structured clarification/approval should use ask_user_question with choices and optional content_preview.",
+                surface,
+            ))
 
     if surface == "source":
         config_terms = ["permission", "allowlist", "denylist", "enabled_tools", "disabled_tools", "tool_paths"]
@@ -134,6 +176,75 @@ def _check_decision(decision: dict[str, str], findings: list[dict[str, Any]]) ->
                 "source-change-may-be-overbuilt",
                 "warning",
                 "Permission/tool-availability changes may be solvable with config or BaseToolConfig; justify why source is required.",
+                surface,
+            ))
+
+    if surface == "subagent":
+        if any(token in text for token in ["write file", "write files", "edit file", "edit files", "create file", "patch file"]):
+            findings.append(_finding(
+                "subagent-assigned-file-writing",
+                "error",
+                "Subagents return text; the parent agent must write project files.",
+                surface,
+            ))
+        if "custom" in text and "agent_type" not in text and "subagent" not in text:
+            findings.append(_finding(
+                "custom-subagent-agent-type-missing",
+                "warning",
+                "Custom subagents must be configured with agent_type = \"subagent\".",
+                surface,
+            ))
+
+    if surface == "hook":
+        invalid_hook_terms = ["pre-turn", "pre turn", "tool hook", "pre_tool", "post_tool", "mid-turn", "mid turn", "per-file"]
+        if any(token in text for token in invalid_hook_terms):
+            findings.append(_finding(
+                "hook-invalid-boundary",
+                "error",
+                "Hooks are POST_AGENT_TURN only; they cannot intercept pre-turn, tool-level, mid-turn, or per-file behavior.",
+                surface,
+            ))
+        if "retry" in text and "exit 2" not in text and "exit code 2" not in text:
+            findings.append(_finding(
+                "hook-retry-exit-code-missing",
+                "warning",
+                "POST_AGENT_TURN retry behavior depends on exit code 2 reinjecting stdout.",
+                surface,
+            ))
+
+    if surface == "todo":
+        if any(token in text for token in ["cross-session", "across sessions", "audit", "persistent record", "durable"]):
+            findings.append(_finding(
+                "todo-used-as-durable-state",
+                "warning",
+                "todo is session-scoped; durable audit/proof should be written to lifecycle artifacts.",
+                surface,
+            ))
+
+    if surface == "scratchpad":
+        if any(token in text for token in ["canonical", "source of truth", "approval record", "workflow_contract", "plan.md", "design.md"]):
+            findings.append(_finding(
+                "scratchpad-used-for-canonical-record",
+                "warning",
+                "Scratchpad is for temporary artifacts, not canonical lifecycle records.",
+                surface,
+            ))
+
+    if surface == "user-question":
+        if "content_preview" not in text and "choice" not in text:
+            findings.append(_finding(
+                "ask-user-question-schema-underused",
+                "warning",
+                "ask_user_question should use structured choices and content_preview when appropriate.",
+                surface,
+            ))
+
+    if surface == "agents-md":
+        if any(token in text for token in ["phase status", "approval", "evidence", "dynamic state", "todo"]):
+            findings.append(_finding(
+                "agents-md-used-for-dynamic-state",
+                "warning",
+                "AGENTS.md is persistent context injection, not dynamic workflow state or approval evidence.",
                 surface,
             ))
 
@@ -178,7 +289,23 @@ def _canonical_surface(surface: Any) -> str | None:
         "agents": "agent-profile",
         "profiles": "agent-profile",
         "agent": "agent-profile",
+        "subagents": "subagent",
+        "subagent": "subagent",
+        "task": "subagent",
+        "task-tool": "subagent",
         "hooks": "hook",
+        "post-agent-turn": "hook",
+        "post_agent_turn": "hook",
+        "programmatic-mode": "programmatic",
+        "streaming-output": "programmatic",
+        "json-output": "programmatic",
+        "scratch": "scratchpad",
+        "agents.md": "agents-md",
+        ".vibe/agents.md": "agents-md",
+        "ask-user-question": "user-question",
+        "ask_user_question": "user-question",
+        "exit-plan-mode": "plan-mode",
+        "exit_plan_mode": "plan-mode",
         "events": "event",
         "sessions": "session",
         "source-changes": "source",
@@ -192,7 +319,14 @@ def _canonical_surface(surface: Any) -> str | None:
         "connector",
         "middleware",
         "agent-profile",
+        "subagent",
         "hook",
+        "programmatic",
+        "scratchpad",
+        "agents-md",
+        "todo",
+        "user-question",
+        "plan-mode",
         "event",
         "session",
         "state",

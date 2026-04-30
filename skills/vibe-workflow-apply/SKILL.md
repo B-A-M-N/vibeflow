@@ -30,7 +30,7 @@ Read the approved `PLAN.md`, `DESIGN.md`, `ARCHITECTURE.md`, and `WORKFLOW_CONTR
 - Verify component-level compliance before reporting complete:
   - Generated skills use a discoverable path and frontmatter with `name`, `description`, `allowed-tools`, and `user-invocable`.
   - Generated tool classes inherit `BaseTool` with `ToolArgs`, `ToolResult`, `BaseToolConfig`, and state typing.
-  - Generated middleware implements `async before_turn(self, messages: MessageList) -> MiddlewareAction` and does not claim pre-tool/post-tool hooks.
+  - Generated middleware implements `async before_turn(self, context: ConversationContext) -> MiddlewareResult` and `reset(self, reset_reason: ResetReason = ResetReason.STOP) -> None`, returns `MiddlewareResult()` as the CONTINUE fallback, and does not claim pre-tool/post-tool hooks.
   - MCP server entries use `[[mcp_servers]]` with `name`, `command` or `url`, and transport type.
   - Plans and applied artifacts preserve selected runtime surfaces from `WORKFLOW_CONTRACT.json`; run drift detection when a manifest/evidence pair exists.
 - Set validation to serial, evidence-bearing, and non-mutating: `serial: true`, `evidenceRequired: true`, `mutatesWorkflow: false`.

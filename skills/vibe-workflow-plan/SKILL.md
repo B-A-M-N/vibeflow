@@ -35,8 +35,13 @@ Before planning edits, verify the approved design against available DeepWiki cap
 - tools and `BaseTool` / `InvokeContext`
 - event types and handlers
 - skill discovery and activation
+- skill `allowed_tools` compatibility with required tools
 - session logging and persistence
 - config keys
+- built-in workflow tools: `ask_user_question`, `exit_plan_mode`, `todo`, `task`, `webfetch`, `websearch`
+- scratchpad and AGENTS.md behavior
+- hook boundary and `POST_AGENT_TURN` exit-code semantics
+- programmatic output modes
 - backend boundaries
 - runtime patterns in `references/feasibility/runtime-pattern-catalog.md`
 
@@ -49,12 +54,13 @@ Verify the design decision contract before planning:
 - Each rejected or not-applicable surface has a rationale and does not create implementation work.
 - The plan must not require every Mistral Vibe extension surface; it must require only surfaces selected by the approved design decision contract.
 - The selected pattern is valid for Mistral Vibe: middleware is `before_turn` only, skills can constrain via `allowed_tools`, tools can use config/state/prompt/result-extra/profile-switch mechanisms, MCP and connectors are distinct, and reasoning-event designs verify backend support.
+- Native runtime primitives are used where they fit: structured user gates use `ask_user_question`, plan/apply transition uses `exit_plan_mode`, session progress uses `todo`, temporary artifacts use scratchpad, delegated analysis uses `task` subagents without file-writing responsibility, external research uses `webfetch`/`websearch`, and CI evidence uses programmatic JSON/streaming output.
 
 For every targeted component type, include contract verification:
 
 - Skills: discovery path plus `name`, `description`, `allowed-tools`, and `user-invocable` frontmatter
 - Tools: `BaseTool[TArgs, TRes, TConfig, TState]` with `ToolArgs`, `ToolResult`, and `BaseToolConfig`
-- Middleware: `async before_turn(self, messages: MessageList) -> MiddlewareAction`
+- Middleware: `async before_turn(self, context: ConversationContext) -> MiddlewareResult` plus `reset(self, reset_reason: ResetReason = ResetReason.STOP) -> None`
 - MCP servers: `[[mcp_servers]]` with `name`, `command` or `url`, and transport type
 - Workflow manifests: all executable sections required by `references/workflow-manifest-schema.json`
 

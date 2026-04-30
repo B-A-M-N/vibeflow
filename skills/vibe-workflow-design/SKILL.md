@@ -80,8 +80,12 @@ Create an internal component matrix with one row per applicable surface:
 - skills/prompts: when the behavior is guidance, sequencing, or user-facing workflow instructions
 - config: when existing runtime behavior only needs to be enabled, disabled, routed, or constrained
 - tools/MCP: when the workflow needs a new executable action, external system call, or structured capability
+- built-in workflow tools: `ask_user_question`, `exit_plan_mode`, `todo`, `task`, `webfetch`, and `websearch` when native primitives fit the workflow
 - middleware: when behavior must inspect, halt, compact, or inject context before LLM turns
 - agents/profiles: when the runtime supports delegated behavior through a real profile/agent/tool surface, not invented persona orchestration
+- scratchpad: when intermediate artifacts should be temporary and auto-allowed
+- AGENTS.md: when persistent project/workflow context should be injected into every session without making a user-invocable skill
+- programmatic mode: when CI/CD or external automation needs machine-readable `--output streaming` or `--output json`
 - events/session/state: when the workflow needs durable trace, replay, audit, or lifecycle state
 - hooks: when behavior belongs at a supported lifecycle boundary; do not use hooks as a substitute for core workflow logic unless the runtime actually calls them there
 - source changes: when the desired behavior changes AgentLoop, tool selection, middleware timing, event schema, persistence, or permission semantics
@@ -103,6 +107,17 @@ Specific checks:
 - Treat `MiddlewareAction.COMPACT` as a distinct action and account for pipeline short-circuiting: `INJECT_MESSAGE` results compose, while `STOP` and `COMPACT` stop later middleware.
 - If a design proposes a skill, verify discoverability: it must live in `.vibe/skills/`, `~/.config/vibe/skills/`, or a project `skills/` directory, and its frontmatter must include `name`, `description`, `allowed-tools`, and `user-invocable`.
 - If a design uses skill `allowed-tools` / `allowed_tools`, verify it does not conflict with required tools.
+- Prefer `ask_user_question` over generic "ask user" prose for approval gates, intake forms, and ambiguity clarification. Use choices, descriptions, multi-select when needed, and `content_preview` for plans or documents.
+- Prefer `exit_plan_mode` for plan-to-implementation approval.
+- Use `todo` for session-scoped phase tracking, not durable audit records.
+- Use scratchpad for temporary drafts/evidence, not canonical workflow records.
+- Use `task` subagents for read-only/specialized analysis; the parent agent writes files.
+- Use `webfetch` / `websearch` when the workflow needs current external docs, PRs, API references, or web context.
+- Use `.vibe/AGENTS.md` / `AGENTS.md` for stable persistent context, not dynamic state.
+- Use MCP `prompt` to guide remote tool use and justify `sampling_enabled` if enabled.
+- Use `thinking` and `compaction_model` as quality/cost knobs when phases are long or reasoning-heavy.
+- Use `POST_AGENT_TURN` hooks only for post-turn validation/observation/retry; retry requires exit code 2 and stdout reinjection. Hooks can read `transcript_path`.
+- Use programmatic `--output streaming` / `--output json` for CI evidence where appropriate.
 - Do not use a tool when the requirement is to change how tools are selected, authorized, sequenced, or interpreted by AgentLoop.
 - Prefer tool-level mechanisms where they fit: `BaseToolConfig` permission/allowlist/denylist/sensitive_patterns, `resolve_permission()`, `get_result_extra()`, `BaseToolState`, `get_tool_prompt()` / `prompt_path`, and `switch_agent_callback`.
 - Do not model agents as autonomous collaborators unless the runtime has a concrete agent/profile/tool mechanism that supports that role.

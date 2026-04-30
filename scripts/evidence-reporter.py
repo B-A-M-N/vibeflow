@@ -62,6 +62,8 @@ EVIDENCE_TEMPLATE = """# VibeFlow Evidence Report
 
 def generate_report(evidence_data, output_dir=".vibe-workflow/reports"):
     """Generate evidence report from workflow run data."""
+    evidence_data = _normalize_evidence(evidence_data)
+    evidence_data["verdict"] = _evidence_verdict(evidence_data)
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     report = EVIDENCE_TEMPLATE.format(
@@ -100,6 +102,34 @@ def _format_commands(commands):
 
 def _format_gates(gates):
     return "\n".join(f"- {g.get('id')}: {g.get('result')}" for g in gates) or "No gates"
+
+def _normalize_evidence(data):
+    normalized = dict(data)
+    if "workflow_id" not in normalized and "workflow" in normalized:
+        normalized["workflow_id"] = normalized["workflow"]
+    if "verdict" not in normalized and "status" in normalized:
+        normalized["verdict"] = "READY" if normalized["status"] == "completed" else "NEEDS_REWORK"
+    if "timeline" not in normalized and "phase_timeline" in normalized:
+        normalized["timeline"] = normalized["phase_timeline"]
+    if "commands" not in normalized and "commands_run" in normalized:
+        normalized["commands"] = normalized["commands_run"]
+    return normalized
+
+def _evidence_verdict(data):
+    if data.get("normalization_warnings"):
+        return "NEEDS_REWORK"
+    if data.get("status") not in ("completed", "READY", None):
+        return "NEEDS_REWORK"
+    if not data.get("timeline"):
+        return "NEEDS_REWORK"
+    if data.get("gates_passed") is False:
+        return "NEEDS_REWORK"
+    if data.get("tests_failed"):
+        return "NEEDS_REWORK"
+    tooling = data.get("tooling_contract", {})
+    if not tooling.get("entrypoint") or not tooling.get("evidenceOutput"):
+        return "NEEDS_REWORK"
+    return data.get("verdict", "READY")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

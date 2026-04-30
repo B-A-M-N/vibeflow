@@ -33,6 +33,8 @@ Ask one question at a time. After each answer:
 4. Check contradictions against earlier answers.
 5. Let the user correct or refine before proceeding.
 
+If the user gives structured answers covering multiple required inputs at once, extract every covered field, update the intent state, and skip questions whose answers are already satisfied. Do not force the user through the rigid sequence after they have supplied enough structured content.
+
 ## Required Inputs
 
 Collect and lock:

@@ -42,11 +42,15 @@ Update `PLAN.md` with:
 - implementation phases
 - target files
 - contracts each file must obey
+- canonical executable workflow manifest fields when generating `.vibe-workflow/workflow.yaml` or `.vibe-workflow/workflow.json`
+- tooling contract requirements when generating runnable workflows
 - validation scripts or commands
 - evidence requirements
 - failure modes
 - rollback/rework notes
 - acceptance criteria
+
+Executable workflow manifests must follow `references/workflow-manifest-schema.json`: `phase.id`, `phase.entry`, `phase.exit`, `phase.retryLimit`, optional `phase.tools`, and top-level `tooling` with required tools, inputs, outputs, entrypoint, evidence output, and failure semantics. Do not generate `phase.name`, `phase.exit_criteria`, or `phase.retry_budget` as canonical fields.
 
 Update `WORKFLOW_CONTRACT.json` with plan status, file targets, validation gates, and unresolved risks.
 

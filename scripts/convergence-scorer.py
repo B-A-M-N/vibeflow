@@ -4,13 +4,13 @@
 import json
 import sys
 from collections import defaultdict
+from workflow_manifest import load_workflow_manifest
 
 def score_convergence(simulation_path, manifest_path):
     """Calculate convergence metrics from simulation/trace data."""
     with open(simulation_path) as f:
         sim = json.load(f)
-    with open(manifest_path) as f:
-        manifest = json.load(f)
+    manifest, warnings = load_workflow_manifest(manifest_path)
 
     # Count iterations per phase
     phase_iterations = defaultdict(int)
@@ -85,7 +85,8 @@ def score_convergence(simulation_path, manifest_path):
                 "error": "No simulation data - workflow never entered any phases"
             },
             "phase_scores": {},
-            "pass": False
+            "pass": False,
+            "normalization_warnings": warnings
         }
 
     overall = {
@@ -101,13 +102,14 @@ def score_convergence(simulation_path, manifest_path):
     return {
         "overall": overall,
         "phase_scores": scores,
-        "pass": all_converged and len(stalled_phases) == 0
+        "pass": all_converged and len(stalled_phases) == 0,
+        "normalization_warnings": warnings
     }
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: convergence-scorer.py <simulation.json> <manifest.json>")
+        print("Usage: convergence-scorer.py <simulation.json> <manifest.json|manifest.yaml>")
         sys.exit(1)
 
     result = score_convergence(sys.argv[1], sys.argv[2])

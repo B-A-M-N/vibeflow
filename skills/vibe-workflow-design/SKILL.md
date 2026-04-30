@@ -12,6 +12,15 @@ Your job is to help the user understand what is possible, what is not possible, 
 
 Read `VISION.md`, `PLAN.md`, and `WORKFLOW_CONTRACT.json`.
 
+Run environment preflight before claiming a grounded runtime topology:
+
+- detect target repo/path/version
+- distinguish installed package from source checkout
+- detect plugin profile path and command/skill loader shape where relevant
+- identify whether source/docs were actually available
+
+If source/docs are unavailable, label the design assumption-based and record verification tasks for plan/validate.
+
 Then use the feasibility substrate with progressive disclosure. Start with `references/diagrams/diagram-index.json`, identify relevant runtime surfaces, and read only the matching reference files needed to sanity-check the current design.
 
 Do not load every reference file by default. Do not make consulting references part of the user-facing workflow. Use the references internally when they help verify a concrete design claim.

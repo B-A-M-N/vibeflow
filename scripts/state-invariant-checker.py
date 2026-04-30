@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+from workflow_manifest import load_workflow_manifest
+
 REQUIRED_KEYS = ["currentPhase", "retryCounts", "evidence", "gateDecisions"]
 PHASE_TRANSITIONS = ["enter", "exit", "handoff", "retry"]
 
@@ -27,9 +29,9 @@ def check_invariants(state_path, manifest_path):
             results["violations"].append(f"Missing required key: {key}")
             results["pass"] = False
 
-    # Load manifest
-    with open(manifest_path) as f:
-        workflow = json.load(f)
+    workflow, warnings = load_workflow_manifest(manifest_path)
+    if warnings:
+        results["warnings"] = warnings
 
     # Check state survives phase transitions
     phases = [p["id"] for p in workflow.get("phases", [])]
@@ -68,7 +70,7 @@ def check_restart_safety(state_path):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: state-invariant-checker.py <state.json> <manifest.json>")
+        print("Usage: state-invariant-checker.py <state.json> <manifest.json|manifest.yaml>")
         sys.exit(1)
 
     results = check_invariants(sys.argv[1], sys.argv[2])

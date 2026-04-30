@@ -5,6 +5,8 @@ import json
 import sys
 from copy import deepcopy
 
+from workflow_manifest import load_workflow_manifest, write_json
+
 def generate_rework(failure_data, gate_results, contract_results):
     """Generate manifest patches from failure/classification data."""
     patches = []
@@ -18,7 +20,7 @@ def generate_rework(failure_data, gate_results, contract_results):
             patches.append({
                 "type": "add_missing_phase",
                 "description": rework,
-                "action": {"op": "add_phase", "phase": {"id": "fixme", "entry": "TBD", "exit": "TBD", "agents": [], "tools": []}}
+                "action": {"op": "add_phase", "phase": {"id": "fixme", "entry": "TBD", "exit": "TBD", "retryLimit": 3, "tools": []}}
             })
 
         elif ftype == "missing Vibe extension point":
@@ -77,11 +79,11 @@ def generate_rework(failure_data, gate_results, contract_results):
 
 def apply_patches(manifest_path, patches):
     """Apply patches to manifest and write reworked version."""
-    with open(manifest_path) as f:
-        manifest = json.load(f)
+    manifest, warnings = load_workflow_manifest(manifest_path)
 
     reworked = deepcopy(manifest)
     applied = []
+    applied.extend(f"Normalized manifest: {warning}" for warning in warnings)
 
     for patch in patches:
         action = patch.get("action", {})
@@ -111,20 +113,23 @@ def apply_patches(manifest_path, patches):
             applied.append(f"Failed to apply {op}: {e}")
 
     # Write reworked manifest
-    output_path = manifest_path.replace(".json", "-reworked.json")
-    with open(output_path, "w") as f:
-        json.dump(reworked, f, indent=2)
+    output_path = _reworked_path(manifest_path)
+    write_json(output_path, reworked)
 
     return {"reworked_path": output_path, "applied": applied}
 
 
+def _reworked_path(manifest_path):
+    if manifest_path.endswith((".yaml", ".yml")):
+        return manifest_path.rsplit(".", 1)[0] + "-reworked.json"
+    return manifest_path.replace(".json", "-reworked.json")
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 4:
-        print("Usage: auto-rework-generator.py <manifest.json> <failure.json> <gates.json> [contract.json]")
+        print("Usage: auto-rework-generator.py <manifest.json|manifest.yaml> <failure.json> <gates.json> [contract.json]")
         sys.exit(1)
 
-    with open(sys.argv[1]) as f:
-        manifest = json.load(f)
     with open(sys.argv[2]) as f:
         failures = json.load(f)
     with open(sys.argv[3]) as f:

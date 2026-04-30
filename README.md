@@ -9,8 +9,14 @@ VibeFlow assumes one Claude Code model runs the process. It is organized around 
 1. **init** - interactive intent loop. Completes only after user sign-off and generation of `VISION.md`, `PLAN.md`, and `WORKFLOW_CONTRACT.json`.
 2. **design** - maps signed intent onto real Mistral Vibe runtime surfaces. Produces plain-English component breakdowns, diagrams, feasibility classification, and design artifacts for approval.
 3. **plan** - researches DeepWiki/source context as needed and produces implementation file targets, contracts, tests, and validation gates.
-4. **apply** - writes or patches files according to the approved plan.
-5. **validate** - proves the result works or reports exactly why it does not.
+4. **apply** - writes or patches files according to the approved plan, including generation or repair of required workflow tooling.
+5. **validate** - proves the result works through runnable tooling and evidence, or reports exactly why it does not.
+
+Executable workflow manifests use one canonical schema in `references/workflow-manifest-schema.json`. Validation tooling accepts YAML or JSON and normalizes legacy aliases with warnings, but generators should emit canonical fields: `phase.id`, `phase.entry`, `phase.exit`, and `phase.retryLimit`.
+
+VibeFlow must produce complete working workflows, not plausible design documents. A workflow is incomplete until artifacts exist, the manifest schema validates, the required tooling contract is present, dry-run execution consumes the generated `workflow.yaml`, evidence is written to `.vibe-workflow/evidence/latest.json` or the manifest's declared evidence output, and the validation report is based on that runnable evidence.
+
+Validation runs through `scripts/validation-runner.py`, which executes checks serially, aggregates all failures, classifies failure domain, and writes evidence even when validation fails.
 
 ## Feasibility Model
 
@@ -71,6 +77,11 @@ Apply this workflow to PR #123
 /vibe-workflow-validate
 ```
 Validate this workflow before I use it for ACP PR bot
+
+### Self-test the plugin
+```bash
+python3 -m unittest discover -s tests -v
+```
 
 ## Target Audience
 

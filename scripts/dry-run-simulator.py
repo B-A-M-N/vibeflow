@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 
+from workflow_manifest import load_workflow_manifest, write_json
+
 class MockTool:
     """Mock tool that records calls without executing."""
     def __init__(self, name):
@@ -20,8 +22,8 @@ class MockTool:
 
 def simulate_workflow(manifest_path, scenario="default"):
     """Simulate workflow execution."""
-    with open(manifest_path) as f:
-        workflow = json.load(f)
+    workflow, warnings = load_workflow_manifest(manifest_path)
+    tooling = workflow.get("tooling", {})
 
     timeline = []
     mock_tools = {t: MockTool(t) for t in _get_all_tools(workflow)}
@@ -59,11 +61,30 @@ def simulate_workflow(manifest_path, scenario="default"):
         })
 
     return {
+        "workflow_id": workflow["name"],
         "workflow": workflow["name"],
         "scenario": scenario,
         "timeline": timeline,
+        "phase_timeline": timeline,
         "tools_called": {k: len(v.calls) for k, v in mock_tools.items() if v.calls},
-        "status": "completed"
+        "files_read": [],
+        "files_changed": [],
+        "commands_run": [],
+        "tests_passed": [],
+        "tests_failed": [],
+        "tooling_contract": {
+            "entrypoint": tooling.get("entrypoint"),
+            "inputs": tooling.get("inputs", []),
+            "outputs": tooling.get("outputs", []),
+            "evidenceOutput": tooling.get("evidenceOutput"),
+            "failureSemantics": tooling.get("failureSemantics", {}),
+        },
+        "gates": [entry for entry in timeline if entry.get("event") == "gate_check"],
+        "gates_passed": True,
+        "retry_count": 0,
+        "verdict": "READY",
+        "status": "completed",
+        "normalization_warnings": warnings,
     }
 
 def _get_all_tools(workflow):
@@ -74,11 +95,14 @@ def _get_all_tools(workflow):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: dry-run-simulator.py <manifest.json> [scenario]")
+        print("Usage: dry-run-simulator.py <manifest.json|manifest.yaml> [scenario] [evidence_out]")
         sys.exit(1)
 
     manifest = sys.argv[1]
     scenario = sys.argv[2] if len(sys.argv) > 2 else "default"
 
     result = simulate_workflow(manifest, scenario)
+    workflow, _warnings = load_workflow_manifest(manifest)
+    evidence_out = sys.argv[3] if len(sys.argv) > 3 else workflow.get("tooling", {}).get("evidenceOutput", ".vibe-workflow/evidence/latest.json")
+    result["evidence_path"] = write_json(evidence_out, result)
     print(json.dumps(result, indent=2))

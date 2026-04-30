@@ -16,6 +16,17 @@ Read:
 - `WORKFLOW_CONTRACT.json`
 - `references/diagrams/diagram-index.json`
 
+## Environment Preflight
+
+Before marking runtime topology as grounded, verify what runtime evidence is actually available:
+
+- target Mistral Vibe repo, source checkout, package, or version
+- installed package versus local source path
+- Claude plugin profile path and command/skill loader shape when relevant
+- available source/docs/DeepWiki material for the runtime surfaces being claimed
+
+If source or docs are unavailable, classify the design as assumption-based and list exactly what must be verified later. Do not present runtime topology as grounded unless it was checked against available source or authoritative docs.
+
 Use references with progressive disclosure:
 
 1. Read `references/diagrams/diagram-index.json` first.

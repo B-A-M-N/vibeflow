@@ -35,11 +35,25 @@ def classify_failure(lint_results):
 
     for violation in lint_results.get("violations", []):
         rule_id = violation.get("rule", "")
+        if rule_id in {"parse-error", "import-error"}:
+            failures.append({
+                "type": "validation harness bug",
+                "rule": rule_id,
+                "failure_domain": "plugin_tooling",
+                "is_design_flaw": False,
+                "is_validation_harness_bug": True,
+                "safe_next_action": "fix harness before redesign"
+            })
+            continue
         for failure_type, rules in FAILURE_TYPES.items():
             if rule_id in rules:
                 failures.append({
                     "type": failure_type,
                     "rule": rule_id,
+                    "failure_domain": "generated_workflow",
+                    "is_design_flaw": failure_type in {"bad workflow topology", "missing Vibe extension point"},
+                    "is_validation_harness_bug": False,
+                    "safe_next_action": REWORK_TEMPLATES.get(failure_type, "Review workflow manifest"),
                     "rework": REWORK_TEMPLATES.get(failure_type, "Review workflow manifest")
                 })
 

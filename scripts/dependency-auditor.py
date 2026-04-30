@@ -6,6 +6,7 @@ import sys
 import shutil
 import os
 from pathlib import Path
+from workflow_manifest import load_workflow_manifest
 
 CHECKS = [
     ("git", "version", "Git version control"),
@@ -75,8 +76,7 @@ def check_manifest_deps(manifest_path):
         results["missing"].append(f"Manifest not found: {manifest_path}")
         return results
 
-    with open(manifest_path) as f:
-        workflow = json.load(f)
+    workflow, warnings = load_workflow_manifest(manifest_path)
 
     # Check tools exist in capability registry
     for phase in workflow.get("phases", []):
@@ -85,6 +85,7 @@ def check_manifest_deps(manifest_path):
                 # Would check capability registry
                 pass
 
+    results["normalization_warnings"] = warnings
     return results
 
 if __name__ == "__main__":

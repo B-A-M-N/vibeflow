@@ -3,6 +3,7 @@
 
 import json
 import sys
+from workflow_manifest import load_workflow_manifest
 
 DEFAULT_POLICY = {
     "discover": {
@@ -29,8 +30,7 @@ DEFAULT_POLICY = {
 
 def check_policy(manifest_path, phase_id, tool_name):
     """Check if tool is allowed in phase per policy."""
-    with open(manifest_path) as f:
-        workflow = json.load(f)
+    workflow, _warnings = load_workflow_manifest(manifest_path)
 
     # Get policy from manifest or use default
     policies = workflow.get("tool_policy", DEFAULT_POLICY)
@@ -53,8 +53,7 @@ def check_policy(manifest_path, phase_id, tool_name):
 
 def validate_manifest_policies(manifest_path):
     """Validate all tool calls in manifest against policies."""
-    with open(manifest_path) as f:
-        workflow = json.load(f)
+    workflow, warnings = load_workflow_manifest(manifest_path)
 
     violations = []
     policies = workflow.get("tool_policy", DEFAULT_POLICY)
@@ -70,11 +69,15 @@ def validate_manifest_policies(manifest_path):
                     "reason": result["reason"]
                 })
 
-    return {"pass": len(violations) == 0, "violations": violations}
+    return {
+        "pass": len(violations) == 0,
+        "violations": violations,
+        "normalization_warnings": warnings
+    }
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: tool-policy-layer.py <manifest.json> [phase tool]")
+        print("Usage: tool-policy-layer.py <manifest.json|manifest.yaml> [phase tool]")
         sys.exit(1)
 
     if len(sys.argv) >= 4:

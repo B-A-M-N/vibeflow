@@ -4,11 +4,11 @@
 import json
 import sys
 from pathlib import Path
+from workflow_manifest import load_workflow_manifest
 
 def detect_drift(manifest_path, simulation_path, trace_path=None):
     """Detect drift between manifest intent, simulation, and actual traces."""
-    with open(manifest_path) as f:
-        manifest = json.load(f)
+    manifest, warnings = load_workflow_manifest(manifest_path)
     with open(simulation_path) as f:
         simulation = json.load(f)
 
@@ -88,13 +88,14 @@ def detect_drift(manifest_path, simulation_path, trace_path=None):
 
     drift_report["drift_count"] = len(drift_report["drifts"])
     drift_report["pass"] = len(drift_report["drifts"]) == 0
+    drift_report["normalization_warnings"] = warnings
 
     return drift_report
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: drift-detector.py <manifest.json> <simulation.json> [trace.json]")
+        print("Usage: drift-detector.py <manifest.json|manifest.yaml> <simulation.json> [trace.json]")
         sys.exit(1)
 
     result = detect_drift(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)

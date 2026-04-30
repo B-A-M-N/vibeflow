@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VibeFlow Executable Workflow Manifest",
+  "type": "object",
+  "required": ["name", "goal", "phases", "tooling", "evidence"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Workflow name in kebab-case"
+    },
+    "goal": {
+      "type": "string",
+      "description": "Executable workflow goal"
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "entry", "exit", "retryLimit"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable phase identifier"
+          },
+          "entry": {
+            "type": "string",
+            "description": "Entry criteria for this phase"
+          },
+          "exit": {
+            "type": "string",
+            "description": "Exit criteria for this phase"
+          },
+          "retryLimit": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Maximum retry attempts before rework/failure; 0 means the phase is terminal or one-shot and does not retry"
+          },
+          "tools": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": []
+          },
+          "handoff": {
+            "type": "string",
+            "description": "Next phase on success"
+          },
+          "onFailure": {
+            "type": "string",
+            "description": "Next phase or action on failure"
+          }
+        }
+      }
+    },
+    "gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "rule", "type"],
+        "properties": {
+          "id": { "type": "string" },
+          "rule": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": ["structure", "sandbox-safety", "patch-minimality", "test-evidence", "no-user-deferral", "convergence", "relevance"]
+          }
+        }
+      }
+    },
+    "middleware": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "state": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "default": ".vibe-workflow/state.json" },
+        "persist": { "type": "boolean", "default": false }
+      }
+    },
+    "tooling": {
+      "type": "object",
+      "required": ["requiredTools", "entrypoint", "inputs", "outputs", "evidenceOutput", "failureSemantics"],
+      "properties": {
+        "requiredTools": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "purpose"],
+            "properties": {
+              "name": { "type": "string" },
+              "purpose": { "type": "string" },
+              "required": { "type": "boolean", "default": true }
+            }
+          }
+        },
+        "entrypoint": {
+          "type": "string",
+          "description": "Command, script, or runtime hook used to execute the workflow"
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "source", "type"],
+            "properties": {
+              "name": { "type": "string" },
+              "source": { "type": "string" },
+              "type": { "type": "string" }
+            }
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "path", "type"],
+            "properties": {
+              "name": { "type": "string" },
+              "path": { "type": "string" },
+              "type": { "type": "string" }
+            }
+          }
+        },
+        "evidenceOutput": {
+          "type": "string",
+          "description": "Path where dry-run or runtime execution writes evidence; normally .vibe-workflow/evidence/latest.json"
+        },
+        "failureSemantics": {
+          "type": "object",
+          "required": ["onSchemaError", "onToolError", "onValidationError"],
+          "properties": {
+            "onSchemaError": { "type": "string" },
+            "onToolError": { "type": "string" },
+            "onValidationError": { "type": "string" }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["require"],
+      "properties": {
+        "require": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

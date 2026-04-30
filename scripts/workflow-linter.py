@@ -1,30 +1,17 @@
 #!/usr/bin/env python3
 """VibeFlow Workflow Linter - hard checks for workflow manifest."""
 
-import json
 import sys
-import os
+import json
 
-try:
-    import yaml
-    HAS_YAML = True
-except ImportError:
-    HAS_YAML = False
+from workflow_manifest import load_workflow_manifest
 
 
 def load_manifest(manifest_path):
     """Load manifest from JSON or YAML file."""
-    ext = os.path.splitext(manifest_path)[1].lower()
-    with open(manifest_path) as f:
-        if ext in (".yaml", ".yml"):
-            if not HAS_YAML:
-                raise ImportError(
-                    "PyYAML is required to parse YAML manifests. "
-                    "Install with: pip install pyyaml"
-                )
-            return yaml.safe_load(f)
-        else:
-            return json.load(f)
+    workflow, warnings = load_workflow_manifest(manifest_path)
+    workflow["_normalization_warnings"] = warnings
+    return workflow
 
 
 CHECKS = []
@@ -34,6 +21,18 @@ def check_phase_exit_criteria(manifest):
     """No phase without exit criteria."""
     violations = []
     for phase in manifest.get("phases", []):
+        if "id" not in phase or not str(phase["id"]).strip():
+            violations.append({
+                "rule": "phase-missing-id",
+                "phase": "?",
+                "message": "Phase has no canonical id field"
+            })
+        if "entry" not in phase or not str(phase["entry"]).strip():
+            violations.append({
+                "rule": "phase-missing-entry",
+                "phase": phase.get("id", "?"),
+                "message": f"Phase '{phase.get('id')}' has no entry criteria"
+            })
         if "exit" not in phase or not str(phase["exit"]).strip():
             violations.append({
                 "rule": "no-phase-without-exit",
@@ -52,6 +51,12 @@ def check_retry_limits(manifest):
                 "rule": "no-retry-without-max",
                 "phase": phase.get("id", "?"),
                 "message": f"Phase '{phase.get('id')}' has no retryLimit"
+            })
+        elif int(phase["retryLimit"]) < 0:
+            violations.append({
+                "rule": "invalid-retry-limit",
+                "phase": phase.get("id", "?"),
+                "message": f"Phase '{phase.get('id')}' retryLimit must be >= 0"
             })
     return violations
 
@@ -120,7 +125,63 @@ def check_reachable_phases(manifest):
 def check_tool_availability(manifest):
     """No tool dependency that is unavailable."""
     violations = []
-    # This would check against capability registry
+    tooling = manifest.get("tooling")
+    if not isinstance(tooling, dict):
+        return [{
+            "rule": "missing-tooling-contract",
+            "message": "Workflow has no tooling contract"
+        }]
+
+    required_fields = [
+        "requiredTools",
+        "entrypoint",
+        "inputs",
+        "outputs",
+        "evidenceOutput",
+        "failureSemantics",
+    ]
+    for field in required_fields:
+        if field not in tooling or tooling.get(field) in ("", [], {}):
+            violations.append({
+                "rule": "tooling-contract-missing-field",
+                "field": field,
+                "message": f"Tooling contract missing required field '{field}'"
+            })
+
+    required_tools = tooling.get("requiredTools", [])
+    if not isinstance(required_tools, list) or not required_tools:
+        violations.append({
+            "rule": "tooling-contract-no-required-tools",
+            "message": "Tooling contract must name required tools"
+        })
+    else:
+        for idx, tool in enumerate(required_tools):
+            if not isinstance(tool, dict) or not tool.get("name") or not tool.get("purpose"):
+                violations.append({
+                    "rule": "tooling-contract-invalid-tool",
+                    "tool": idx,
+                    "message": "Each required tool must include name and purpose"
+                })
+
+    used_tools = {tool for phase in manifest.get("phases", []) for tool in phase.get("tools", [])}
+    declared_tools = {tool.get("name") for tool in required_tools if isinstance(tool, dict)}
+    missing = sorted(used_tools - declared_tools)
+    for tool in missing:
+        violations.append({
+            "rule": "phase-tool-not-declared",
+            "tool": tool,
+            "message": f"Phase uses tool '{tool}' but tooling.requiredTools does not declare it"
+        })
+
+    failure_semantics = tooling.get("failureSemantics", {})
+    for field in ["onSchemaError", "onToolError", "onValidationError"]:
+        if not isinstance(failure_semantics, dict) or not failure_semantics.get(field):
+            violations.append({
+                "rule": "tooling-contract-missing-failure-semantics",
+                "field": field,
+                "message": f"Tooling contract missing failure semantics '{field}'"
+            })
+
     return violations
 
 
@@ -144,6 +205,7 @@ def lint_workflow(manifest_path):
     return {
         "valid": len(all_violations) == 0,
         "violations": all_violations,
+        "warnings": manifest.get("_normalization_warnings", []),
         "count": len(all_violations)
     }
 

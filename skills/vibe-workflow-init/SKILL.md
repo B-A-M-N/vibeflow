@@ -50,6 +50,8 @@ Ask one question at a time. After each user answer:
 6. If confidence is 50-70%, mark uncertainty and continue only if the missing detail can safely move to design.
 7. If confidence is above 70%, continue normally.
 
+If the user provides structured content covering multiple required questions, fill every covered intake field and skip already-satisfied questions. Do not ask the user to repeat material that is already clear enough to lock or mark as a design-phase uncertainty.
+
 Be direct. If the user is mixing goals, smuggling in scope creep, or assuming runtime behavior that might not exist, say so.
 
 ## Required Questions

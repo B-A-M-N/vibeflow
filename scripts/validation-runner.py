@@ -128,6 +128,21 @@ def run_validation(manifest_path: str, evidence_path: str | None = None, report_
     evidence = _build_evidence(manifest_file, checks, evidence_out)
     evidence["report_generated"] = reporter.get("passed", False)
     evidence["report_output"] = reporter.get("stdout", "").strip()
+
+    if evidence["verdict"] != "READY":
+        rework = _run_check(
+            "auto-rework-generator",
+            [sys.executable, str(ROOT / "auto-rework-generator.py"), evidence_out, str(manifest_file)],
+        )
+        checks.append(rework)
+        rework_parsed = rework.get("parsed")
+        if isinstance(rework_parsed, dict):
+            evidence["rework_plan"] = rework_parsed.get("patches", [])
+            evidence["rework_summary"] = rework_parsed.get("summary", "")
+        evidence["rework_command"] = (
+            f"python3 scripts/auto-rework-generator.py {evidence_out} {str(manifest_file)}"
+        )
+
     write_json(evidence_out, evidence)
     return evidence
 
@@ -272,7 +287,7 @@ def _build_evidence(manifest_file: Path, checks: list[dict[str, Any]], evidence_
         "gates": _gate_results(checks),
         "gates_passed": not failures,
         "retry_count": 0,
-        "recommendations": [] if not failures else [blocking.get("safe_next_action", "repair failing check")],
+        "recommendations": [] if not failures or blocking is None else [blocking.get("safe_next_action", "repair failing check")],
     }
 
 

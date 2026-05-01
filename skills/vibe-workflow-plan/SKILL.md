@@ -45,7 +45,17 @@ Before planning edits, verify the approved design against available DeepWiki cap
 - backend boundaries
 - runtime patterns in `references/feasibility/runtime-pattern-catalog.md`
 
-Also verify that `DESIGN.md` contains an architecture sanity check. The plan must preserve the approved selected/rejected runtime surfaces and must not reintroduce rejected middleware, tool, hook, agent/profile, config, event, session, or source-change approaches without recording a scoped design deviation.
+Before writing `PLAN.md`, run this deterministic check:
+
+```bash
+grep -q "Architecture Sanity Check" DESIGN.md \
+  && echo "PASS: Architecture Sanity Check section found" \
+  || echo "BLOCK: DESIGN.md is missing the 'Architecture Sanity Check' section"
+```
+
+If the grep returns BLOCK, stop and tell the user to re-run `vibe-workflow:design` to produce the required section. Do not write or update `PLAN.md` until the check passes.
+
+The plan must preserve the approved selected/rejected runtime surfaces and must not reintroduce rejected middleware, tool, hook, agent/profile, config, event, session, or source-change approaches without recording a scoped design deviation.
 
 Verify the design decision contract before planning:
 

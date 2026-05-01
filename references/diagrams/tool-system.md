@@ -14,15 +14,15 @@ flowchart TB
   TM["ToolManager"]
 
   subgraph Discovery["Tool Discovery System"]
-    SearchPaths["_compute_search_paths()"]
-    DefaultDir["DEFAULT_TOOL_DIR\nvibe/core/tools/builtins/"]
-    ConfigPaths["config.tool_paths"]
-    ProjectTools["project tool dirs"]
-    UserTools["user tool dirs"]
+    SearchPaths["_compute_search_paths()\nOrder: builtins first, then custom paths"]
+    DefaultDir["1. DEFAULT_TOOL_DIR\nvibe/core/tools/builtins/"]
+    ConfigPaths["2. config.tool_paths\n(custom — overrides builtins on name collision)"]
+    ProjectTools["3. project tool dirs\n(overrides builtins on name collision)"]
+    UserTools["4. user tool dirs\n(overrides builtins on name collision)"]
     Iter["_iter_tool_classes()"]
     Load["_load_tools_from_file()"]
     Inspect["inspect.isclass + issubclass(BaseTool)"]
-    Available["_available: dict[str, type[BaseTool]]"]
+    Available["_available: dict[str, type[BaseTool]]\n(later paths win on name collision)"]
   end
 
   subgraph Config["Configuration System"]

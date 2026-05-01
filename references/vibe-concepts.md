@@ -62,10 +62,6 @@ Before proposing code, first build an internal model of Mistral Vibe workflows u
 - Mock tools where possible
 - Validate: inspect → plan → patch → test → report
 
-### ACP Automation Target
-- Autonomously identify, patch, and validate ACP-related PR work
-- Workflow: discover candidate → diagnose issue → apply patch → validate fix
-- Evidence: must show commands run, files changed, tests passed/failed
 
 ## Extension Points
 

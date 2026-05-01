@@ -101,6 +101,21 @@ For each applicable surface, decide:
 
 Record these decisions as a design decision contract in `WORKFLOW_CONTRACT.json`. This contract preserves creative freedom: it does not prescribe the exact component shape, but every selected surface must name the capability it provides, why it is necessary, the runtime contract it obeys, planned implementation evidence, and validation proof. Rejected or not-applicable surfaces need rationale and when to reconsider, not implementation.
 
+Every `surfaceDecision` entry written to `WORKFLOW_CONTRACT.json` must use this exact template. Missing any of these fields will fail `design-contract-linter.py`:
+
+```json
+{
+  "surface": "human-readable surface name",
+  "status": "selected | rejected | not-applicable",
+  "reason": "why this surface was selected, rejected, or not applicable",
+  "requiredCapabilities": ["list of capabilities this surface must provide"],
+  "contracts": ["runtime contracts this surface must obey"],
+  "implementationEvidence": ["planned files or code evidence that proves implementation"],
+  "validationEvidence": ["validation commands or checks that confirm the surface works"],
+  "feasibility_confidence": 80
+}
+```
+
 Specific checks:
 
 - Middleware only has `before_turn(context)` active behavior plus reset. It fires before each LLM call in the multi-step loop. Do not use middleware for behavior that must happen during tool execution, after tool results, or on arbitrary events.
@@ -128,6 +143,21 @@ Specific checks:
 - If two surfaces could solve the same problem, compare them explicitly and choose one with rationale.
 
 The recommendation must include a short "Architecture Sanity Check" section before the approval question. If a surface is applicable but rejected, include the reason. If a surface is required but unverified, mark the design assumption-based and add verification tasks for plan/validate. Do not write `DESIGN.md` or `ARCHITECTURE.md` until this sanity check has no blocking gaps or the user explicitly approves the known assumptions.
+
+Each surface decision must carry a `feasibility_confidence` score (0–100):
+- **≥ 80**: grounded in source or verified reference — proceed normally.
+- **50–79**: assumption-based or partially verified — mark the decision as assumption-based, add a verification task for plan/validate.
+- **< 50**: insufficient grounding — block and research before proceeding.
+
+## Pre-Approval Pattern-Fit Check
+
+Before presenting the architecture for approval, write a preliminary `WORKFLOW_CONTRACT.json` (or update the existing one) with the proposed `surfaceDecisions`, then run:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pattern-fit-linter.py" WORKFLOW_CONTRACT.json
+```
+
+If the linter flags violations, address them before showing the architecture to the user. Do not present a design that fails pattern-fit. Warnings may be shown to the user with explanation.
 
 ## Blunt Critique
 

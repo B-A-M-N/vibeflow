@@ -20,6 +20,19 @@ Validation must be evidence-bearing. If proof is incomplete, say exactly what is
 
 Validation is also an integration check. A workflow is not complete unless its generated manifest can be consumed by the required or generated tools and produce runnable evidence.
 
+## Contract Source Resolution
+
+Before running any checks, detect which contract is authoritative:
+
+```bash
+# If WORKFLOW_CONTRACT.json has a contract_source field, use the referenced file.
+# Pass it explicitly to design-contract-linter.py:
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/design-contract-linter.py" \
+  .vibe-workflow/workflow.yaml REALIZATION_CONTRACT.json
+```
+
+If `WORKFLOW_CONTRACT.json` contains `"contract_source": "REALIZATION_CONTRACT.json"`, pass `REALIZATION_CONTRACT.json` as the second argument. The linter will follow the pointer automatically, but being explicit prevents ambiguity.
+
 ## Checks
 
 Perform deterministic checks wherever possible:
@@ -67,6 +80,15 @@ Require this pass chain before reporting `READY`:
 11. No parser/schema mismatch appears between generated workflow and required tools.
 
 Classify failures as `plugin_tooling`, `generated_workflow`, `user_spec`, `environment`, or `external_dependency`. Parser/schema incompatibility should direct repair toward the harness or generated artifact before any redesign.
+
+On any `NEEDS_REWORK` verdict, the evidence file will contain a `rework_command` field. Run it to get a structured patch list:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/auto-rework-generator.py" \
+  .vibe-workflow/evidence/latest.json .vibe-workflow/workflow.yaml
+```
+
+Include the rework plan output in your validation report.
 
 ## Report
 

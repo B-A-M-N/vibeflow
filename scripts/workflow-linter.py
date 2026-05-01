@@ -249,13 +249,29 @@ def check_middleware_hooks(manifest):
             })
             continue
 
+        custom_examples = registry.get("custom_middleware_examples", {})
         if name not in known_middleware:
-            violations.append({
-                "rule": "middleware-unknown",
-                "middleware": name,
-                "message": f"Middleware '{name}' is not in the capability registry"
-            })
-            continue
+            if name in custom_examples:
+                violations.append({
+                    "rule": "middleware-requires-source-registration",
+                    "middleware": name,
+                    "severity": "warning",
+                    "message": (
+                        f"Middleware '{name}' is a Tier D custom middleware. "
+                        "Ensure it is registered in _setup_middleware() in AgentLoop source."
+                    ),
+                })
+            else:
+                violations.append({
+                    "rule": "middleware-unrecognized",
+                    "middleware": name,
+                    "severity": "warning",
+                    "message": (
+                        f"Middleware '{name}' is not in the capability registry. "
+                        "If this is custom middleware, ensure it is registered via _setup_middleware()."
+                    ),
+                })
+            # Fall through — still validate hooks even for custom/unrecognized middleware.
 
         if not isinstance(hooks, list) or not hooks:
             violations.append({
@@ -384,6 +400,7 @@ def lint_workflow(manifest_path):
     manifest = load_manifest(manifest_path)
 
     all_violations = []
+    all_warnings: list = []
     for check_fn in [
         check_required_manifest_sections,
         check_phase_exit_criteria,
@@ -398,13 +415,18 @@ def lint_workflow(manifest_path):
         check_reachable_phases,
         check_tool_availability,
     ]:
-        violations = check_fn(manifest)
-        all_violations.extend(violations)
+        for v in check_fn(manifest):
+            if isinstance(v, dict) and v.get("severity") == "warning":
+                all_warnings.append(v)
+            else:
+                all_violations.append(v)
 
     return {
         "valid": len(all_violations) == 0,
         "violations": all_violations,
-        "warnings": manifest.get("_normalization_warnings", []),
+        "warnings": manifest.get("_normalization_warnings", []) + [
+            w["message"] if isinstance(w, dict) else w for w in all_warnings
+        ],
         "count": len(all_violations)
     }
 

@@ -31,8 +31,12 @@ def build_registry():
             "AutoCompactMiddleware": {"interface": MIDDLEWARE_SOURCE, "hooks": ["before_turn"]},
             "ReadOnlyAgentMiddleware": {"interface": MIDDLEWARE_SOURCE, "hooks": ["before_turn"]},
             "ContextWarningMiddleware": {"interface": MIDDLEWARE_SOURCE, "hooks": ["before_turn"]},
-            "workflow_phase_guard": {"interface": MIDDLEWARE_SOURCE, "hooks": ["before_turn"], "custom": True},
-            "no_user_deferral_guard": {"interface": MIDDLEWARE_SOURCE, "hooks": ["before_turn"], "custom": True},
+        },
+        # NOT built-in. Require Tier D source changes: registration in _setup_middleware() in AgentLoop.
+        # Listed as reference examples only — not available without source modification.
+        "custom_middleware_examples": {
+            "workflow_phase_guard": {"interface": MIDDLEWARE_SOURCE, "hooks": ["before_turn"], "tier": "D", "requires_source_registration": True},
+            "no_user_deferral_guard": {"interface": MIDDLEWARE_SOURCE, "hooks": ["before_turn"], "tier": "D", "requires_source_registration": True},
         },
         "skills": {
             "vibe-workflow-init": {"path": "skills/vibe-workflow-init/", "trigger": "init workflow"},
@@ -42,6 +46,7 @@ def build_registry():
             "vibe-workflow-validate": {"path": "skills/vibe-workflow-validate/", "trigger": "validate workflow"},
             "vibe-workflow-inspect": {"path": "skills/vibe-workflow-inspect/", "trigger": "inspect workflow"},
             "vibe-workflow-update": {"path": "skills/vibe-workflow-update/", "trigger": "update workflow"},
+            "vibe-workflow-realize": {"path": "skills/vibe-workflow-realize/", "trigger": "realize existing workflow"},
         },
         "models": ["mistral-large", "mistral-medium", "mixtral-8x22b"],
         "commands": ["vibe", "vibe-acp", "vibe --resume"],

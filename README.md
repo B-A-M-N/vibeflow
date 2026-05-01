@@ -27,15 +27,18 @@ The plugin should not tell the agent to use every possible customization point. 
 
 VibeFlow’s references model the current Mistral Vibe runtime surfaces, including:
 
-- Skills, including `allowed_tools` as a real partial enforcement boundary.
-- Built-in tools such as `ask_user_question`, `exit_plan_mode`, `todo`, `task`, `webfetch`, and `websearch`.
-- Tool contracts: `BaseTool` generics, `BaseToolConfig`, `resolve_permission()`, `get_result_extra()`, tool state, and tool prompt files.
-- MCP servers and Mistral Connectors as distinct remote tool surfaces.
-- Agent profiles and tool-triggered profile switching through `switch_agent_callback`.
-- Subagents through the `task` tool, with the constraint that subagents return text and the parent writes files.
-- Hooks as `POST_AGENT_TURN` only, including transcript access and exit-code retry semantics.
-- Middleware as source/runtime-code components implementing `before_turn(context)` and `reset()`.
-- Session scratchpad, AGENTS.md context injection, programmatic JSON/streaming output, model thinking levels, and compaction model settings.
+- Skills. `allowed_tools` is advisory only — it is never used to filter `ToolManager.available_tools`. The model sees all available tools regardless. Use agent profile flat-TOML `enabled_tools` for actual restriction.
+- Built-in tools: `ask_user_question`, `exit_plan_mode`, `todo`, `task`, `webfetch`, `websearch`. `ask_user_question` is disabled in programmatic (`-p`) and ACP execution contexts.
+- Tool contracts: `BaseTool` class variables (`name`, `description` are `ClassVar[str]`), `invoke()` → `run()` call chain (no `__call__`), `BaseToolConfig`, `resolve_permission()`, `get_result_extra()`, `get_file_snapshot()`, `is_available()`, tool state (`BaseToolState`), and tool prompt files.
+- Tool discovery: search path order is `[builtins, config.tool_paths, project .vibe/tools/, ~/.vibe/tools/]` — later entries override earlier ones, so custom tools in `tool_paths` override built-ins. Discovery is recursive.
+- MCP servers and Mistral Connectors as distinct remote tool surfaces. Per-server `disabled` and `disabled_tools` controls.
+- Agent profiles: `default`, `plan`, `accept-edits`, `auto-approve`, `chat`, and opt-in `lean`. The `chat` profile restricts to a fixed tool list (`grep`, `read_file`, `ask_user_question`, `task`) via `bypass_tool_permissions + enabled_tools` overrides — not a generic "read-only" mode. Profile overrides use flat TOML keys, not a nested `[overrides]` section. The `base_disabled` key merges with existing `disabled_tools` without replacing it.
+- Tool-triggered profile switching through `ctx.switch_agent_callback`. `AgentProfileChangedEvent` is silently dropped by the ACP layer.
+- Subagents through the `task` tool. The built-in `explore` subagent is read-only by profile — this is not a hard runtime constraint on all subagents. Custom subagent profiles with write tools can write. Subagents never run hooks. `TaskResult.completed = False` on middleware stop or skipped tool call.
+- Hooks as `POST_AGENT_TURN` only, via `hooks.toml` + `enable_experimental_hooks = true` (Tier A — no Python required). Exit-code semantics: `exit 2` + non-empty stdout = retry; `exit 2` + empty stdout = warning only, no retry. 3-retry ceiling per hook per user turn. Chain breaks on first retrying hook.
+- Middleware as a duck-typed `ConversationMiddleware` Protocol (not an ABC). Must implement `before_turn(context)` and `reset(reset_reason)`. Registration requires modifying `_setup_middleware()` in source — Tier D. Stateless middleware may use `pass` for `reset()`.
+- Config: `bypass_tool_permissions` (not `auto_approve` — silently ignored), `system_prompt_id`, `enable_experimental_hooks`, `context_warnings`, `auto_compact_threshold` (global and per-model), `api_timeout`. `thinking` is per-model inside `[[models]]`. `session_prefix` lives under `[session_logging]`. All fields overridable via `VIBE_*` env vars.
+- Session scratchpad (temp directory, non-deterministic path), AGENTS.md context injection, programmatic JSON/streaming output, and compaction model settings.
 
 The main reference for this is `references/feasibility/runtime-pattern-catalog.md`.
 
@@ -43,25 +46,52 @@ The main reference for this is `references/feasibility/runtime-pattern-catalog.m
 
 Custom middleware is valid in Mistral Vibe. Multiple middleware can be composed.
 
-The constraint is not whether middleware can exist; it is where it lives and when it runs. Custom middleware must be implemented as runtime/source code and registered with the middleware pipeline. It is not created by a skill, hook, or manifest alone.
+The constraint is not whether middleware can exist; it is where it lives and when it runs. Middleware is a duck-typed `ConversationMiddleware` Protocol — no ABC to subclass. Registration requires modifying `_setup_middleware()` in `AgentLoop` source (Tier D). It cannot be registered through config, skills, or hooks alone.
 
-Generated middleware must implement:
+Middleware must implement:
 
 ```python
 async def before_turn(self, context: ConversationContext) -> MiddlewareResult: ...
 def reset(self, reset_reason: ResetReason = ResetReason.STOP) -> None: ...
 ```
 
-`before_turn()` runs before every LLM call in the tool loop. It cannot intercept during tool execution, after tool results, or arbitrary events unless the runtime source is changed to add that boundary.
+`before_turn()` runs before **every LLM call** in the tool loop — not once per user message. On a multi-tool turn it fires once per tool batch plus once for the final response. A hook retry also triggers another `before_turn()` on the next loop iteration.
+
+`reset()` may be a no-op (`pass`) for stateless middleware. Stateful middleware must handle both `ResetReason.STOP` and `ResetReason.COMPACT`.
 
 Middleware actions:
 
-- `CONTINUE` - proceed.
-- `STOP` - halt the agent turn.
-- `COMPACT` - trigger compaction.
-- `INJECT_MESSAGE` - inject a user-role message.
+- `CONTINUE` — proceed.
+- `STOP` — halt the agent turn entirely. No compaction.
+- `COMPACT` — trigger context compaction, then **continue** the loop. Not the same as `STOP`.
+- `INJECT_MESSAGE` — collect a message; all collected injections are joined with `\n\n` and injected before the LLM call.
 
-Pipeline composition matters: `STOP` and `COMPACT` short-circuit immediately; multiple `INJECT_MESSAGE` results are merged.
+Pipeline: `STOP` and `COMPACT` short-circuit and discard any previously accumulated `INJECT_MESSAGE` results. The default pipeline is `AutoCompactMiddleware` + two `ReadOnlyAgentMiddleware` instances (plan and chat). `TurnLimitMiddleware`, `PriceLimitMiddleware`, and `ContextWarningMiddleware` are conditional on their respective config flags.
+
+## Phase I/O Contract
+
+Every phase produces a machine-checkable artifact set that the next phase consumes without re-interpreting intent. No phase is allowed to silently upgrade, downgrade, or reinterpret the workflow.
+
+**init produces:**
+- `VISION.md` — locked intent, success criteria, scope boundary
+- `PLAN.md` — signed phased plan
+- `WORKFLOW_CONTRACT.json` — initial surface selections and rejections
+
+**design consumes:** `WORKFLOW_CONTRACT.json`, `references/feasibility/*`
+**design produces:** `DESIGN.md`, topology diagram(s), `selected_surfaces[]`, `rejected_surfaces[]`, feasibility classification
+
+**plan consumes:** `WORKFLOW_CONTRACT.json`, `DESIGN.md`
+**plan produces:** `IMPLEMENTATION_PLAN.md`, `file_targets[]`, `validation_targets[]`, `expected_evidence[]`
+
+**apply consumes:** `IMPLEMENTATION_PLAN.md`
+**apply must not** change selected runtime surfaces unless it records a contract amendment first
+
+**validate consumes:** repo state, `workflow.yaml` / manifest, `WORKFLOW_CONTRACT.json`, `expected_evidence[]`
+**validate produces:** validation report, evidence artifacts, drift classification
+
+**realize consumes:** existing repo/artifacts/concepts, `references/feasibility/*`
+**realize requires:** user confirmation of candidate selection → scope confirmation → fix plan approval before any file edits
+**realize produces:** `REALIZATION_CONTRACT.json` (authoritative contract for this run), `CONCEPT_MAP.json`, `WORKFLOW_CONTRACT.json` stub if absent, implementation patches, `REALIZATION_REPORT.md`, validation evidence
 
 ## Design Contract
 
@@ -78,6 +108,27 @@ Pipeline composition matters: `STOP` and `COMPACT` short-circuit immediately; mu
 - update/change-control records.
 
 This is how VibeFlow keeps creative freedom without allowing implementation drift. The schema does not force every workflow to include middleware, tools, hooks, agents, or MCP. It forces the workflow to justify the surfaces it does select and explain why others are unnecessary.
+
+## Contract-Drift Rules
+
+These rules are enforced by `apply`, `validate`, and `update`. They are what separates a governed workflow compiler from a prompt pack.
+
+1. **`apply` must fail** if it implements a runtime surface not selected in `WORKFLOW_CONTRACT.json`. Record a contract amendment first or stop.
+2. **`apply` must fail** if it omits a selected surface without a recorded contract amendment.
+3. **`validate` must classify drift** as one of:
+   - `missing_selected_surface` — a contracted surface has no implementation evidence
+   - `unauthorized_surface_added` — an uncontracted surface was implemented
+   - `wrong_runtime_surface` — the wrong Vibe extension point was used for a contracted capability
+   - `impossible_runtime_assumption` — the implementation assumes a Vibe behavior that does not exist
+   - `stale_evidence` — evidence artifacts exist but do not match current repo state
+   - `validation_gap` — a contracted validation target has no corresponding check
+4. **`update` is the only phase allowed to amend the contract** after initial sign-off.
+5. **Every amendment must record:**
+   - old surface
+   - new surface
+   - reason
+   - affected files
+   - required revalidation targets
 
 ## Validation
 
@@ -105,15 +156,51 @@ Executable workflow manifests use the canonical schema in `references/workflow-m
 VibeFlow includes a linter for common design mistakes, for example:
 
 - using middleware as `after_tool`, `post_tool`, or tool-level interception;
-- selecting custom middleware without source/runtime registration;
-- assigning file writes to a subagent;
-- using hooks for pre-turn or mid-turn behavior;
+- assuming `before_turn()` fires once per user message — it fires before every LLM call in the tool loop;
+- selecting custom middleware without source/runtime registration in `_setup_middleware()`;
+- treating `allowed_tools` in a skill as a hard tool-access boundary — it is advisory only;
+- using `auto_approve` instead of `bypass_tool_permissions` in config;
+- using hooks for pre-turn or mid-turn behavior — hooks are `POST_AGENT_TURN` only;
+- writing `exit 2` in a hook without printing stdout — empty stdout is a warning, not a retry;
+- assuming subagents inherit parent hooks — subagents never run hooks;
+- assuming `before_turn()` fires once per user message on multi-tool turns;
 - selecting plan-mode behavior without `exit_plan_mode`;
+- using `ask_user_question` in a workflow that runs headless or via ACP — it is disabled in both contexts;
 - using generic user prompts where `ask_user_question` should provide structured choices;
 - treating `todo` as durable audit state;
-- treating scratchpad as canonical record storage;
+- treating scratchpad as canonical record storage or a project-relative path;
 - enabling MCP `sampling_enabled` without justification;
-- requiring reasoning visibility without checking model/backend support.
+- requiring reasoning visibility without checking model/backend support;
+- designing interactive workflows without asking whether headless execution is required.
+
+## Concept Realization Mode
+
+VibeFlow can ingest existing conceptual workflows, skillsets, plugin drafts, partially implemented repos, or design documents and convert them into working, runtime-grounded implementations.
+
+This is not `init`. It starts from existing artifacts, not a blank intake. It is interactive: the user confirms what to work on, confirms the scope and intent, reviews the feasibility reflection, approves the fix plan, then the system executes.
+
+The realization flow:
+
+1. **Scan** — silently scan the repo, group findings into named candidates, display them, ask the user to choose one
+2. **Scope confirmation** — present interpretation of the selected candidate's intent, ask targeted clarifying questions, wait for explicit user confirmation
+3. **Feasibility reflection** — classify each component against real Vibe runtime surfaces using `references/feasibility/`; surface what cannot be implemented as stated and the nearest alternative
+4. **Proposed fix plan** — present a numbered, file-specific list of changes; wait for user approval or adjustments
+5. **Contract bootstrap** — write `REALIZATION_CONTRACT.json` as the authoritative contract for this run; create or stub `WORKFLOW_CONTRACT.json` if absent (partial implementations will not have one)
+6. **Apply** — execute only the approved plan; record any deviations before making them
+7. **Validate** — run validation against the realization contract; classify failures with the drift taxonomy; report honestly if validation cannot run
+
+Because partial implementations will not have a complete `WORKFLOW_CONTRACT.json`, `realize` bootstraps one from what it finds. Validation uses `REALIZATION_CONTRACT.json` as the authoritative contract source rather than failing on a missing or incomplete prior contract.
+
+Classification buckets:
+
+| Bucket | Example |
+|---|---|
+| `implemented` | Valid skill prompt, valid command file already wired |
+| `maps_to_existing_surface` | Approval loop via plan profile + `exit_plan_mode` |
+| `requires_custom_tool` | Evidence writer, manifest generator |
+| `requires_mcp_connector` | Remote knowledge server, external API bridge |
+| `requires_source_modification` | Middleware registration, custom AgentLoop hook |
+| `not_implementable_as_stated` | "middleware after every tool call" — no Vibe hook exists for this |
 
 ## Usage
 
@@ -145,6 +232,7 @@ The first command is a dry run. The second syncs `~/.claude` and detected `~/.cl
 | `/vibe-workflow-validate` | `skills/vibe-workflow-validate/SKILL.md` | Prove the result works or explain exactly why not |
 | `/vibe-workflow-update` | `skills/vibe-workflow-update/SKILL.md` | Change-control loop for modifying or hardening existing workflows |
 | `/vibe-workflow-inspect` | `skills/vibe-workflow-inspect/SKILL.md` | Inspect an existing repo/workflow state |
+| `/vibe-workflow-realize` | `skills/vibe-workflow-realize/SKILL.md` | Realize a conceptual workflow, skillset, or partial implementation |
 
 Example sequence:
 
@@ -161,6 +249,13 @@ For existing workflows:
 ```text
 /vibe-workflow-inspect
 /vibe-workflow-update
+/vibe-workflow-validate
+```
+
+For conceptual or partially implemented work:
+
+```text
+/vibe-workflow-realize
 /vibe-workflow-validate
 ```
 
@@ -194,7 +289,7 @@ VibeFlow is for advanced Mistral Vibe users building:
 - middleware-backed runtime behavior;
 - custom tools and tool orchestration;
 - MCP or connector integrations;
-- PR bots, ACP automation, and CI validation flows;
+- CI validation flows and programmatic automation;
 - source-level Mistral Vibe customizations.
 
 It is not intended as a beginner Mistral AI guide.

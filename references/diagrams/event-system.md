@@ -33,61 +33,108 @@ sequenceDiagram
 ```mermaid
 classDiagram
   class BaseEvent {
-    event_type
-    timestamp
-  }
-
-  class AssistantEvent {
-    content
-    is_streaming
-  }
-
-  class ReasoningEvent {
-    content
-  }
-
-  class ToolCallEvent {
-    tool_name
-    args
-    tool_call_id
-  }
-
-  class ToolResultEvent {
-    result
-    error
-    duration
-  }
-
-  class ToolStreamEvent {
-    message
-    tool_call_id
+    %% No event_type or timestamp fields
   }
 
   class UserMessageEvent {
-    content
-    role
+    content: str
+    message_id: str
+  }
+
+  class AssistantEvent {
+    content: str
+    stopped_by_middleware: bool
+  }
+
+  class ReasoningEvent {
+    content: str
+  }
+
+  class ToolCallEvent {
+    tool_name: str
+    tool_class: type
+    args: BaseModel
+    tool_call_id: str
+    tool_call_index: int|None
+  }
+
+  class ToolResultEvent {
+    tool_name: str
+    tool_class: type|None
+    result: BaseModel|None
+    error: str|None
+    skipped: bool
+    skip_reason: str|None
+    cancelled: bool
+    duration: float|None
+    tool_call_id: str
+  }
+
+  class ToolStreamEvent {
+    tool_name: str
+    message: str
+    tool_call_id: str
   }
 
   class CompactStartEvent {
-    old_context_tokens
+    current_context_tokens: int
+    threshold: int
+    tool_call_id: str
   }
 
   class CompactEndEvent {
-    new_context_tokens
+    old_context_tokens: int
+    new_context_tokens: int
+    summary_length: int
+    threshold: int
+    tool_call_id: str
   }
 
-  class WaitingForInputEvent
+  class WaitingForInputEvent {
+    task_id: str
+    label: str|None
+    predefined_answers: list|None
+  }
 
+  class AgentProfileChangedEvent {
+    %% profile fields; silently dropped by ACP layer
+  }
+
+  class HookRunStartEvent {
+    %% hook chain begins
+  }
+
+  class HookStartEvent {
+    hook_name: str
+  }
+
+  class HookEndEvent {
+    hook_name: str
+    status: str
+    content: str
+  }
+
+  class HookRunEndEvent {
+    %% entire hook chain complete
+  }
+
+  BaseEvent <|-- UserMessageEvent
   BaseEvent <|-- AssistantEvent
   BaseEvent <|-- ReasoningEvent
   BaseEvent <|-- ToolCallEvent
   BaseEvent <|-- ToolResultEvent
   BaseEvent <|-- ToolStreamEvent
-  BaseEvent <|-- UserMessageEvent
   BaseEvent <|-- CompactStartEvent
   BaseEvent <|-- CompactEndEvent
   BaseEvent <|-- WaitingForInputEvent
+  BaseEvent <|-- AgentProfileChangedEvent
+  BaseEvent <|-- HookRunStartEvent
+  BaseEvent <|-- HookStartEvent
+  BaseEvent <|-- HookEndEvent
+  BaseEvent <|-- HookRunEndEvent
 ```
+
+> **Note:** `HookUserMessage` is NOT a `BaseEvent` — it is a `BaseModel` yielded by `HooksManager.run()` as a separate signal type. The agent loop injects it as a user-role message and triggers a retry. It never reaches `EventHandler` or the ACP layer.
 
 ## Design Constraints
 

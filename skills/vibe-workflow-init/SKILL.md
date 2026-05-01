@@ -60,6 +60,15 @@ Ask one question at a time. After each user answer:
 
 If the user provides structured content covering multiple required questions, fill every covered intake field and skip already-satisfied questions. Do not ask the user to repeat material that is already clear enough to lock or mark as a design-phase uncertainty.
 
+**Max-question limit:** If you have asked 8 or more questions and `overall_confidence` is still below 70%, do not continue the loop. Instead, pause and summarize:
+
+- what has been locked
+- what is still uncertain
+- the specific field(s) blocking progress
+- three concrete options: (a) accept the uncertainty and mark it as a design-phase question, (b) provide a short answer now, (c) skip this workflow and revisit later
+
+Do not ask a 9th question. Offer the summary and wait for the user to choose.
+
 Be direct. If the user is mixing goals, smuggling in scope creep, or assuming runtime behavior that might not exist, say so.
 
 ## Required Questions

@@ -47,15 +47,19 @@ def lint_design_contract(manifest_path: str, contract_path: str | None = None) -
     for idx, decision in enumerate(decisions):
         _check_surface_decision(decision, idx, phase, manifest, violations)
 
-    selected_surfaces = {
-        _canonical_surface(decision.get("surface"))
+    selected_surfaces: set[str] = {
+        s
         for decision in decisions
         if isinstance(decision, dict) and decision.get("status") == SELECTED
+        for s in (_canonical_surface(decision.get("surface")),)
+        if s is not None
     }
-    selected_surfaces.discard(None)
 
     for idx, requirement in enumerate(requirements):
         _check_requirement(requirement, idx, selected_surfaces, violations)
+
+    for idx, amendment in enumerate(contract.get("amendments", [])):
+        _check_amendment(amendment, idx, violations)
 
     return {
         "pass": len(violations) == 0,
@@ -80,6 +84,16 @@ def _resolve_contract_path(manifest_path: str, contract_path: str | None) -> Pat
     ])
     for candidate in candidates:
         if candidate.exists():
+            # Follow contract_source pointer for realize-mode contracts.
+            try:
+                stub = json.loads(candidate.read_text())
+                source_ref = stub.get("contract_source")
+                if source_ref:
+                    resolved = candidate.parent / source_ref
+                    if resolved.exists():
+                        return resolved
+            except (json.JSONDecodeError, OSError):
+                pass
             return candidate
     return None
 
@@ -181,11 +195,12 @@ def _check_requirement(
         return
     req_id = requirement.get("id", idx)
     status = str(requirement.get("status", "runtime")).strip()
-    surfaces = {
-        _canonical_surface(surface)
+    surfaces: set[str] = {
+        s
         for surface in requirement.get("selected_surfaces", [])
+        for s in (_canonical_surface(surface),)
+        if s is not None
     }
-    surfaces.discard(None)
 
     if status in RUNTIME_REQUIREMENT_STATUSES and not surfaces:
         violations.append({
@@ -207,6 +222,20 @@ def _check_requirement(
             "requirement": req_id,
             "message": "Runtime requirement must describe how success will be proven",
         })
+
+
+def _check_amendment(amendment: Any, idx: int, violations: list[dict[str, Any]]) -> None:
+    if not isinstance(amendment, dict):
+        violations.append({"rule": "amendment-invalid", "amendment": idx, "message": "amendments entries must be objects"})
+        return
+    for field in ("old_surface", "new_surface", "reason", "affected_files", "revalidation_targets"):
+        if not amendment.get(field):
+            violations.append({
+                "rule": "amendment-missing-field",
+                "amendment": idx,
+                "field": field,
+                "message": f"Contract amendment[{idx}] is missing required field '{field}'",
+            })
 
 
 def _manifest_supports_surface(manifest: dict[str, Any], surface: str) -> bool:

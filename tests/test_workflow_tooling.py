@@ -531,5 +531,151 @@ class WorkflowToolingTests(unittest.TestCase):
             self.assertIn("subagent-assigned-file-writing", {f["rule"] for f in data["findings"]})
 
 
+    # ── pre-apply-guard tests ────────────────────────────────────────────────
+
+    def _write_contract(self, tmp: str, surface_decisions: list) -> Path:
+        contract = Path(tmp) / "WORKFLOW_CONTRACT.json"
+        contract.write_text(json.dumps({
+            "phase": "plan-approved",
+            "design": {
+                "surfaceDecisions": surface_decisions,
+            },
+        }))
+        return contract
+
+    def _write_proposed(self, tmp: str, changes: list) -> Path:
+        pf = Path(tmp) / "proposed_changes.json"
+        pf.write_text(json.dumps({"proposed_changes": changes}))
+        return pf
+
+    def test_guard_passes_when_all_selected_surfaces_covered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_contract(tmp, [
+                {"surface": "skill", "status": "selected",
+                 "requiredCapabilities": ["guidance"], "contracts": [], "implementationEvidence": "x", "validationEvidence": "x"},
+            ])
+            pf = self._write_proposed(tmp, [
+                {"file": "skills/my-skill/SKILL.md", "operation": "create", "surface": "skill", "implements": "guidance"},
+            ])
+            proc = run_script(ROOT / "scripts/pre-apply-guard.py", pf, cwd=Path(tmp))
+            self.assertEqual(proc.returncode, 0, proc.stdout)
+            data = json.loads(proc.stdout)
+            self.assertTrue(data["pass"])
+            self.assertEqual(data["violations"], [])
+
+    def test_guard_blocks_rejected_surface(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_contract(tmp, [
+                {"surface": "skill", "status": "selected",
+                 "requiredCapabilities": [], "contracts": [], "implementationEvidence": "x", "validationEvidence": "x"},
+                {"surface": "middleware", "status": "rejected", "rationale": "not needed"},
+            ])
+            pf = self._write_proposed(tmp, [
+                {"file": "skills/my-skill/SKILL.md", "operation": "create", "surface": "skill", "implements": "guidance"},
+                {"file": "middleware/my_mw.py", "operation": "create", "surface": "middleware", "implements": "blocked"},
+            ])
+            proc = run_script(ROOT / "scripts/pre-apply-guard.py", pf, cwd=Path(tmp))
+            self.assertNotEqual(proc.returncode, 0)
+            data = json.loads(proc.stdout)
+            self.assertFalse(data["pass"])
+            self.assertIn("rejected-surface", {v["rule"] for v in data["violations"]})
+
+    def test_guard_blocks_unauthorized_surface(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_contract(tmp, [
+                {"surface": "skill", "status": "selected",
+                 "requiredCapabilities": [], "contracts": [], "implementationEvidence": "x", "validationEvidence": "x"},
+            ])
+            pf = self._write_proposed(tmp, [
+                {"file": "skills/my-skill/SKILL.md", "operation": "create", "surface": "skill", "implements": "guidance"},
+                {"file": "tools/extra_tool.py", "operation": "create", "surface": "custom-tool", "implements": "unauthorized"},
+            ])
+            proc = run_script(ROOT / "scripts/pre-apply-guard.py", pf, cwd=Path(tmp))
+            self.assertNotEqual(proc.returncode, 0)
+            data = json.loads(proc.stdout)
+            self.assertIn("unauthorized-surface", {v["rule"] for v in data["violations"]})
+
+    def test_guard_blocks_missing_selected_surface(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_contract(tmp, [
+                {"surface": "skill", "status": "selected",
+                 "requiredCapabilities": [], "contracts": [], "implementationEvidence": "x", "validationEvidence": "x"},
+                {"surface": "custom-tool", "status": "selected",
+                 "requiredCapabilities": [], "contracts": [], "implementationEvidence": "x", "validationEvidence": "x"},
+            ])
+            pf = self._write_proposed(tmp, [
+                {"file": "skills/my-skill/SKILL.md", "operation": "create", "surface": "skill", "implements": "guidance"},
+                # custom-tool is selected but not proposed — guard must flag it
+            ])
+            proc = run_script(ROOT / "scripts/pre-apply-guard.py", pf, cwd=Path(tmp))
+            self.assertNotEqual(proc.returncode, 0)
+            data = json.loads(proc.stdout)
+            self.assertIn("missing-selected-surface", {v["rule"] for v in data["violations"]})
+            self.assertIn("custom-tool", data["uncovered_surfaces"])
+
+    def test_guard_passes_without_contract_with_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pf = self._write_proposed(tmp, [
+                {"file": "skills/my-skill/SKILL.md", "operation": "create", "surface": "skill", "implements": "guidance"},
+            ])
+            proc = run_script(ROOT / "scripts/pre-apply-guard.py", pf, cwd=Path(tmp))
+            self.assertEqual(proc.returncode, 0, proc.stdout)
+            data = json.loads(proc.stdout)
+            self.assertTrue(data["pass"])
+            self.assertTrue(any("No contract found" in w for w in data["warnings"]))
+
+    def test_guard_follows_contract_source_pointer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rc = Path(tmp) / "REALIZATION_CONTRACT.json"
+            rc.write_text(json.dumps({
+                "mode": "realize_existing_concept",
+                "required_runtime_surfaces": ["skill"],
+            }))
+            wf = Path(tmp) / "WORKFLOW_CONTRACT.json"
+            wf.write_text(json.dumps({
+                "phase": "realize-approved",
+                "contract_source": "REALIZATION_CONTRACT.json",
+            }))
+            pf = self._write_proposed(tmp, [
+                {"file": "skills/x/SKILL.md", "operation": "create", "surface": "skill", "implements": "realized skill"},
+            ])
+            proc = run_script(ROOT / "scripts/pre-apply-guard.py", pf, cwd=Path(tmp))
+            self.assertEqual(proc.returncode, 0, proc.stdout)
+            data = json.loads(proc.stdout)
+            self.assertTrue(data["pass"])
+            self.assertIn("REALIZATION_CONTRACT.json", data["contract_path"])
+
+    def test_guard_accepts_surface_aliases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_contract(tmp, [
+                {"surface": "tools", "status": "selected",   # alias for custom-tool
+                 "requiredCapabilities": [], "contracts": [], "implementationEvidence": "x", "validationEvidence": "x"},
+            ])
+            pf = self._write_proposed(tmp, [
+                {"file": "tools/my_tool.py", "operation": "create", "surface": "basetool", "implements": "api call"},
+            ])
+            proc = run_script(ROOT / "scripts/pre-apply-guard.py", pf, cwd=Path(tmp))
+            self.assertEqual(proc.returncode, 0, proc.stdout)
+
+    def test_guard_exits_2_on_missing_proposed_file(self):
+        proc = run_script(ROOT / "scripts/pre-apply-guard.py", Path("/nonexistent/proposed_changes.json"))
+        self.assertEqual(proc.returncode, 2)
+
+    def test_guard_retry_guidance_present_on_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_contract(tmp, [
+                {"surface": "skill", "status": "selected",
+                 "requiredCapabilities": [], "contracts": [], "implementationEvidence": "x", "validationEvidence": "x"},
+            ])
+            pf = self._write_proposed(tmp, [
+                {"file": "tools/bad.py", "operation": "create", "surface": "custom-tool", "implements": "oops"},
+            ])
+            proc = run_script(ROOT / "scripts/pre-apply-guard.py", pf, cwd=Path(tmp))
+            self.assertNotEqual(proc.returncode, 0)
+            data = json.loads(proc.stdout)
+            self.assertIn("retry_guidance", data)
+            self.assertIn("proposed_changes.json", data["retry_guidance"])
+
+
 if __name__ == "__main__":
     unittest.main()

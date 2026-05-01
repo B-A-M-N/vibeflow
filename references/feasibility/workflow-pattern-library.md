@@ -8,7 +8,7 @@ Common workflow patterns mapped to Mistral Vibe runtime surfaces, feasibility ti
 
 - Runtime surface: skills + config
 - Tier: A
-- Constraints: cannot change AgentLoop, middleware timing, tool permissions, event schema, or persistence model
+- Constraints: cannot change AgentLoop, middleware timing, tool permissions, event schema, or persistence model; the scratchpad system prompt section is only injected for the parent agent (`scratchpad_dir` is non-None) — skills that reference scratchpad paths are invisible to subagents
 - Proof: skill loads correctly, instructions are followed, no source changes needed
 
 ## Pattern: External Service Tool
@@ -17,16 +17,47 @@ Common workflow patterns mapped to Mistral Vibe runtime surfaces, feasibility ti
 
 - Runtime surface: tool or MCP server
 - Tier: B
-- Constraints: tool runs only when selected by the model/tool system; it does not intercept message flow
+- Constraints: tool runs only when selected by the model/tool system; it does not intercept message flow; if the tool is used as a custom subagent via `task`, `TaskToolConfig.allowlist` only contains `["explore"]` by default — custom subagent profiles require explicit allowlist or permission config under `[tools.task]`
 - Proof: tool contract validates args/results, permissions are correct, failure modes are reported
+
+## Pattern: Post-Turn Validation/Retry
+
+**Use when:** The workflow needs to inspect the agent's output after each turn, inject corrective feedback, or enforce quality gates without modifying source.
+
+- Runtime surface: hooks (`hooks.toml`, `enable_experimental_hooks = true`)
+- Tier: A
+- Constraints:
+  - `POST_AGENT_TURN` only — no pre-turn, no tool-level interception
+  - 3-retry ceiling per hook name per user turn; retry count resets on new user message
+  - `exit 2` + non-empty stdout = retry; `exit 2` + empty stdout = warning only (silent failure)
+  - 30s default timeout; chain breaks on first retrying hook
+  - Subagents never run hooks — `hook_config_result` is not passed to subagent `AgentLoop`
+  - Requires `enable_experimental_hooks = true`; field has `exclude=True` and will not appear in auto-generated config
+- Proof: `HookEndEvent.status` is `OK`, retry message injected when expected, `HookRunEndEvent` fires
+
+## Pattern: Subagent Delegation
+
+**Use when:** The workflow needs to delegate a bounded, autonomous subtask to a specialized agent without consuming parent context.
+
+- Runtime surface: `task` tool (built-in), agent profiles (`agent_type = subagent`)
+- Tier: A (built-in `explore`) or B (custom subagent profile + custom tools)
+- Constraints:
+  - `task` only accepts `agent_type = SUBAGENT` profiles; passing a primary agent profile raises `ToolError`
+  - `explore` is auto-approved; custom subagents require explicit `allowlist` or permission config under `[tools.task]`
+  - `TaskResult.completed = False` when middleware stops the subagent OR when a tool call is skipped
+  - Subagents have no scratchpad (`is_subagent=True` → `scratchpad_dir=None`); parent scratchpad path is injected into the task text string
+  - Subagents do not run hooks
+  - Parallel subagents require multiple `task` tool calls in one LLM turn, not a single call
+  - "Subagents cannot write files" is prompt guidance on `explore`, not a runtime block; custom subagent profiles with write tools can write
+- Proof: `TaskResult.completed` is `True`, response is non-empty
 
 ## Pattern: Phase/Policy Guard
 
 **Use when:** The workflow needs to inject phase context, stop unsafe continuation, or enforce turn-level policy before LLM calls.
 
-- Runtime surface: middleware
-- Tier: C
-- Constraints: middleware runs before LLM turns, not during tool execution or after tool results
+- Runtime surface: middleware + source registration in `_setup_middleware()`
+- Tier: D (registration requires modifying `AgentLoop._setup_middleware()` — a source change; the middleware logic itself is Tier C)
+- Constraints: middleware runs before LLM turns, not during tool execution or after tool results; runs before every LLM call in the tool loop, not once per user message
 - Proof: middleware returns correct `MiddlewareAction`, including `COMPACT` handling
 
 ## Pattern: Event-Aware UX or Telemetry
@@ -34,8 +65,11 @@ Common workflow patterns mapped to Mistral Vibe runtime surfaces, feasibility ti
 **Use when:** The workflow needs custom visibility, streaming display, or observability.
 
 - Runtime surface: event system + handlers + diagnostics
-- Tier: C or D
-- Constraints: new event types require updates to consumers such as TUI/ACP handlers
+- Tier: C (consuming existing events) or D (new event types or changed event shapes)
+  - Tier C: consuming existing events (`CompactStartEvent`, `ToolResultEvent`, etc.) in a custom consumer — no new event types needed
+  - Tier D: adding new event types, changing existing event field shapes, or adding new consumers to TUI/ACP handlers
+- Constraints: new event types require updates to consumers such as TUI/ACP handlers; hook events are not surfaced to ACP clients at all
+- Note: OTEL (`vibe/core/tracing.py`, opt-in via `enable_otel = true`) and `TelemetryClient` are distinct surfaces. OTEL exports to an external OTLP endpoint and is the correct surface for external proof. `TelemetryClient` sends to Mistral's internal servers and is not accessible to workflow validation scripts.
 - Proof: emitted events are consumed without breaking existing UI/server paths
 
 ## Pattern: Session-Backed Continuity
@@ -43,8 +77,11 @@ Common workflow patterns mapped to Mistral Vibe runtime surfaces, feasibility ti
 **Use when:** The workflow needs persistence across turns or sessions.
 
 - Runtime surface: SessionLogger / SessionLoader / session metadata
-- Tier: A, C, or D depending on whether existing session behavior is enough
-- Constraints: do not claim memory across sessions unless it is stored and loaded through real persistence
+- Tier:
+  - A: reading/writing files in the session directory, using `SessionLoader.load_session()` to replay prior context — no source changes
+  - C: middleware that reads `ConversationContext` to inject session-derived state before each turn
+  - D: changing `SessionLogger` storage format, adding new metadata fields, or modifying `_reset_session()` behavior
+- Constraints: do not claim memory across sessions unless it is stored and loaded through real persistence; session ID changes after compaction — validation evidence must follow the `parent_session_id` chain
 - Proof: session data is written, loaded, and used in a later run
 
 ## Pattern: Source-Level Runtime Change
@@ -73,3 +110,7 @@ Common workflow patterns mapped to Mistral Vibe runtime surfaces, feasibility ti
 - Does the workflow need new events, and if so, who consumes them?
 - Does persistence use real session/config/state surfaces?
 - Is the proposed component count proportionate to the problem?
+- Is the workflow interactive or headless? `ask_user_question` and approval gates are disabled in `-p` mode (`disabled_tools = ["ask_user_question"]`) and in ACP contexts.
+- Does the workflow use hooks? Is `enable_experimental_hooks = true` confirmed in config? Without it, hooks are silently disabled. The field has `exclude=True` and will not appear in auto-generated config.
+- Does the workflow spawn subagents via `task`? Does it handle `TaskResult.completed = False`? This fires on middleware stop AND on skipped tool calls.
+- Does the workflow depend on a stable session ID? Session ID changes after compaction — validation evidence must follow the `parent_session_id` chain.

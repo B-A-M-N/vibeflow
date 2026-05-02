@@ -71,7 +71,8 @@ Skill metadata includes `allowed_tools`, but this field is **advisory only and n
 
 **Non-obvious behaviors**
 
-- **Parallel tool execution within a turn**: tools emitted in the same LLM response are executed concurrently. Data-dependent tool calls (read file A, then use its content to decide what to write to file B) must be split across separate LLM turns, not parallel calls in one response. Workflow designs that assume sequential in-turn execution will silently run concurrently.
+- **Parallel tool execution within a turn**: tools emitted in the same LLM response are executed concurrently via `_run_tools_concurrently()`. Data-dependent tool calls (read file A, then use its content to decide what to write to file B) must be split across separate LLM turns, not parallel calls in one response. **Custom tools that write shared state, modify the same files, or have ordering dependencies will race.** Design custom tools to be safe for concurrent execution, or use `resolve_permission()` / prompt guidance to ensure the model calls them sequentially.
+- **No approval callback = silent SKIP**: if `approval_callback` is `None` and a tool's permission resolves to `"ask"`, the tool is silently skipped — `ToolResultEvent.skipped = True` with `skip_reason = "Tool execution not permitted."`. No exception. This happens in programmatic contexts, subagent contexts without an allowlist, and any other context without a wired-up callback. Tools that must always execute in these contexts need `permission: "always"` or `resolve_permission()` returning `"always"`.
 
 **Not valid for**
 
@@ -103,7 +104,11 @@ Use this for approval gates, intake forms, and ambiguity clarification.
 
 Prefer this over generic prose like "ask the user" when the workflow needs a structured decision.
 
-**`ask_user_question` is disabled in programmatic and ACP modes**: the CLI adds it to `disabled_tools` when running with `--prompt`, and the ACP layer also loads config with `disabled_tools=["ask_user_question"]`. Any workflow using `ask_user_question` must document that it is unavailable in both headless CLI and ACP contexts.
+**`ask_user_question` unavailability in non-interactive contexts**:
+- CLI `--prompt` / `-p` mode: the CLI adds it to `disabled_tools=["ask_user_question"]` — the tool does not appear in the model's tool list.
+- ACP layer: loads config with `disabled_tools=["ask_user_question"]` — same effect.
+- `run_programmatic()` called directly: the tool is NOT in `disabled_tools`, but no `user_input_callback` is passed to AgentLoop. The tool exists in the model's tool list but **fails at runtime with no callback** when invoked. The failure mode is different from CLI/ACP (runtime error, not tool-not-found).
+Any workflow using `ask_user_question` must document that it is unavailable in all three non-interactive contexts.
 
 Good uses:
 
@@ -171,6 +176,7 @@ Bad uses:
 - **Config isolation**: subagents get a fresh `VibeConfig.load()` — they do not inherit the parent's runtime config overrides. Permission mutations the parent made at runtime are invisible to the subagent.
 - **Custom subagents default to `ASK` permission**: only `explore` is in the default `TaskToolConfig.allowlist`. Any custom subagent falls through to config-level `ASK` permission and will prompt on every `task` call in auto-approve contexts unless explicitly added to the allowlist.
 - **`completed: False` is silent to the LLM**: when a subagent is stopped by middleware (turn limit, price limit), `TaskResult.completed = False` is just text in the tool result. The parent agent will not act on it unless the workflow prompt explicitly checks for it. Subagent workflows using turn or price limits must include a prompt instruction to handle incomplete results.
+- **Unhandled exceptions also produce `completed=False`**: any unhandled exception from the subagent's `act()` generator sets `completed=False` and puts the exception message in `result.response`. Callers that only check `completed` without reading `response` will miss the error detail. This is distinct from middleware-stop — both produce `completed=False` but for different reasons.
 - **Parallel subagents require multiple tool calls in one turn**: the `task` tool runs one subagent per call. Parallelism requires the LLM to emit multiple `task` tool calls in the same response turn (which the runtime supports via parallel tool execution). A single `task` call does not spawn parallel work; the design must prompt the model to issue concurrent calls.
 
 ### `webfetch` / `websearch`
@@ -204,11 +210,13 @@ MCP server config can include:
 - `prompt`: usage hint appended to tool descriptions
 - `sampling_enabled`: permits the MCP server to request LLM completions
 
-Use `prompt` when the agent needs guidance on when a remote tool is appropriate. Treat `sampling_enabled` as a meaningful escalation: the server can request model completions, so the design must justify that capability.
+Use `prompt` when the agent needs guidance on when a remote tool is appropriate. `sampling_enabled` is not a capability to enable — it is a capability that is **already on by default** and must be explicitly disabled when not needed.
 
 **Non-obvious behaviors**
 
-- **`sampling_enabled` defaults to `True`**: every configured MCP server can request LLM completions by default. This is not opt-in. Workflows that do not need MCP-initiated model completions should explicitly set `sampling_enabled = false`. The design should account for any MCP server where `sampling_enabled` is left at the default.
+- **`sampling_enabled` defaults to `True`**: every configured MCP server can request LLM completions by default. This is not opt-in; it is the default. Any workflow that adds an MCP server without setting `sampling_enabled = false` grants that server the ability to trigger LLM completions using your API key. The correct posture is: **always set `sampling_enabled = false` unless the server specifically requires LLM access and that requirement is documented.**
+- **MCP server names are normalized at parse time**: the `name` field validator replaces non-alphanumeric/underscore/hyphen characters with `_`, strips leading/trailing `_-`, and truncates to 256 chars. A server named `my-server.v2` becomes `my-server_v2`, and all its tools are prefixed accordingly (e.g., `my-server_v2_search`). Workflows that hardcode prefixed tool names must account for this normalization.
+- **`disabled_tools` on MCP servers uses un-prefixed names**: `disabled_tools: ["search"]` disables the tool that would otherwise appear as `{server_name}_search`. Using the full prefixed name in `disabled_tools` will silently have no effect.
 
 **Not valid for**
 
@@ -256,6 +264,8 @@ It also has `reset(reset_reason)` for lifecycle reset. There is no `after_turn`,
 
 **Non-obvious behaviors**
 
+- **`before_turn()` fires N+1 times per multi-tool turn**: on a turn with 5 tool calls, middleware fires 6 times — once before each tool batch re-entry plus once before the final response. Middleware that accumulates state (turn counter, phase tracker, step logger) will miscount. Stateless middleware or middleware that uses `stats.steps` as the reference value handles this correctly.
+- **Hook timeout does not trigger retry**: a hook that exceeds its default 30s timeout emits a `WARNING` event and does NOT retry regardless of exit code. Only `exit 2` + non-empty stdout triggers retry. A timed-out hook is silently dropped from the turn.
 - **Accumulated injections are dropped on STOP/COMPACT**: `INJECT_MESSAGE` results from earlier middlewares accumulate, but if any later middleware returns `STOP` or `COMPACT`, all previously accumulated injections are silently discarded. If middleware A injects and middleware B stops, A's message is dropped entirely.
 - **`ConversationContext` field inventory**: the context object has exactly three fields: `messages` (full message list), `stats` (`AgentStats`), and `config` (`VibeConfig`). There is no `tool_results`, `last_tool_name`, or `turn_number` field. `AgentStats` exposes `steps`, `session_cost`, `context_tokens`, `tool_calls_agreed`, `tool_calls_rejected`, `tool_calls_failed`, `tool_calls_succeeded`. Use `stats.steps` as a turn-count proxy.
 - **`TurnLimitMiddleware` step semantics**: the check is `stats.steps - 1 >= max_turns`. `stats.steps` is incremented twice per user message (once on append, once at each LLM turn start). `max_turns=1` means one LLM call. Setting `max_turns` based on "number of tool calls" or "number of user messages" will produce the wrong count.
@@ -264,12 +274,64 @@ It also has `reset(reset_reason)` for lifecycle reset. There is no `after_turn`,
 - **Transition-only injection**: `ReadOnlyAgentMiddleware` injects only on profile entry and exit, not on every turn. There is no per-turn reminder after the initial injection. Mid-session drift from plan-mode constraints is not automatically corrected.
 - **`ContextWarningMiddleware` fires once**: the warning fires when `context_tokens >= auto_compact_threshold * 0.5`, then `has_warned = True` until compaction or session reset. Only active when `context_warnings = true` (default `false`). If `auto_compact_threshold` is 0, the warning never fires. Workflows using the warning as a signal will receive it exactly once per session.
 
+**Middleware is a loop guard, not a phase orchestrator**
+
+This is the most common architectural mistake when designing multi-phase workflows. If a workflow needs to sequence phases (discover → diagnose → patch → validate), the correct surface is the `task` tool, not middleware. Each phase is a separate `task()` call; the parent agent checks `TaskResult.completed` and decides the next phase. Middleware cannot observe what the LLM just produced — it runs only *before* the next LLM call. A middleware-based phase state machine has an unavoidable one-turn delay on every transition and cannot react to what the LLM said without parsing the message history.
+
+The correct pattern:
+
+```python
+# Parent agent using task tool for phase sequencing (Tier A/B)
+task(task="discover phase: scan the repo", agent="my-workflow-subagent")
+# → check TaskResult.completed
+task(task="diagnose phase: based on discovery, identify root cause", agent="my-workflow-subagent")
+# → check TaskResult.completed
+```
+
+Not:
+
+```python
+# Anti-pattern: middleware as phase state machine (Tier D, still broken)
+class PhaseMiddleware:
+    async def before_turn(self, context):
+        # Cannot see what LLM just said. Cannot advance phase reactively.
+        # Fires before every LLM call, not once per phase.
+        if self.phase == "discover" and self._parse_phase_signal(context.messages):
+            self.phase = "diagnose"  # one turn too late
+```
+
+**`reset()` must differentiate `ResetReason.COMPACT` from `ResetReason.STOP`**
+
+When compaction fires, `middleware_pipeline.reset(ResetReason.COMPACT)` is called. Middleware that clears all state on any `reset()` call will lose phase/session state across compaction, silently restarting the workflow. The fix:
+
+```python
+def reset(self, reset_reason: ResetReason = ResetReason.STOP) -> None:
+    if reset_reason == ResetReason.STOP:
+        self.phase = "initial"       # clear on session end
+        self.retry_count = 0
+    # on COMPACT: preserve all state — do nothing
+```
+
+**Text signals are fragile — use custom tool calls for control flow**
+
+Patterns like `PHASE_COMPLETE: IMPLEMENT` or `VERDICT: PASS` in LLM output require regex parsing and fail silently when the model produces slightly different wording. Use a custom tool call instead:
+
+```python
+class CompletePhase(BaseTool):
+    description: ClassVar[str] = "Signal phase completion with a structured result"
+    def run(self, args: CompletePhasesArgs, ctx: InvokeContext) -> CompletePhaseResult:
+        return CompletePhaseResult(phase=args.phase, status=args.status)
+```
+
+The parent agent calls `complete_phase(phase="implement", status="pass")`. The result is a `BaseModel`, not regex-parsed text.
+
 **Not valid for**
 
 - post-tool interception
 - during-tool execution
 - arbitrary event handling
 - changing tool execution logic without source changes
+- phase sequencing or workflow orchestration (use `task` tool instead)
 
 ## Agent Profiles
 
@@ -307,6 +369,9 @@ This is often the smallest correct alternative to custom middleware or subagent 
 - **Profile switch preserves full message history**: the new profile sees the complete conversation history from the previous profile. There is no context reset. This is useful for continuity but can be context pollution in multi-phase designs that expect a clean slate.
 - **`todo` state is wiped on switch**: `switch_agent` creates a new `ToolManager`, which creates a new `Todo` instance with an empty list. Any todo state from before the switch is lost.
 - **Agent profile config overrides for per-phase tool restriction**: agent profile TOML files support config overrides via **flat top-level keys** — there is no `[overrides]` section. Keys not consumed as profile metadata (`display_name`, `description`, `safety`, `agent_type`) are collected as config overrides, including `enabled_tools`, `disabled_tools`, `active_model`, and `[tools.bash]` sub-tables. This is the correct surface for per-phase tool restriction. A special `base_disabled` key merges with the existing `disabled_tools` list rather than replacing it — use it to disable specific tools without clobbering user config.
+- **`exit_plan_mode` is only available in `plan` and `chat` profiles**: DEFAULT, AUTO_APPROVE, ACCEPT_EDITS, and LEAN all have `base_disabled: ["exit_plan_mode"]`. Any workflow that generates plan-mode behavior while running under these profiles will find `exit_plan_mode` silently unavailable. Switch to the `plan` profile before calling `exit_plan_mode`.
+- **`chat` profile is ACP-only**: CHAT is not in `BUILTIN_AGENTS` for the CLI. It cannot be invoked via `--agent chat`. It is only reachable through ACP `set_config_option(config_id="mode", value="chat")`.
+- **PLAN profile write-blocking uses tool-level `permission: "never"`**, not `bypass_tool_permissions`. The `plan` profile sets `write_file` and `search_replace` to `permission: "never"` with an allowlist for the plans directory. A custom tool that checks `bypass_tool_permissions` to infer "safe/read-only mode" will get the wrong answer under the plan profile.
 
 ## Configuration Layer
 
@@ -378,8 +443,11 @@ Every `VibeConfig` field can be overridden via a `VIBE_`-prefixed env var (case-
 - **`enabled_tools` silently ignores `disabled_tools`**: when `enabled_tools` is non-empty, `disabled_tools` is completely ignored. Same rule applies to `enabled_skills`/`disabled_skills` and `enabled_agents`/`disabled_agents`. Setting both is a silent bug.
 - **Compaction model must share provider**: `compaction_model` must use the same provider as the active model. A mismatch raises `ValueError` at config load time, not at compaction time.
 - **`enable_experimental_hooks` is excluded from generated config**: this field has `exclude=True`, so it does not appear in auto-generated `config.toml`. It must be added manually. Hooks silently do nothing without it.
+- **`auto_compact_threshold = 0` disables auto-compaction entirely**: `AutoCompactMiddleware` checks `threshold > 0` before triggering. Setting `auto_compact_threshold = 0` (globally or per-model) disables compaction for that scope. Useful for testing or for workflows where compaction would destroy critical context that cannot be reconstructed.
 - **`auto_compact_threshold` interaction**: if you set a global `auto_compact_threshold` without a `compaction_model`, compaction uses the active model at full cost. For long workflows, set both.
+- **`system_prompt_id` lookup order**: the runtime searches `project_prompts_dirs` first, then `user_prompts_dirs` (`~/.vibe/prompts/`), then falls back to the builtin `SystemPrompt` enum. A `.vibe/prompts/cli.md` in the project directory silently overrides `~/.vibe/prompts/cli.md`. A missing ID raises `MissingPromptFileError` at config load time — not at runtime.
 - **`system_prompt_id` default is `"cli"`**: overriding it changes the entire base system prompt, including headless-mode behavior. Test thoroughly in the target execution context.
+- **`enabled_agents` ignores `disabled_agents`** when set — same precedence rule as `enabled_tools`/`disabled_tools` and `enabled_skills`/`disabled_skills`. Also: `installed_agents` is a separate opt-in list for builtins with `install_required = True` (e.g., `lean`). An agent with `install_required = True` that is not in `installed_agents` will not appear in available agents even if listed in `enabled_agents`.
 
 ## Planning And Approval Mode
 
@@ -540,6 +608,9 @@ Programmatic mode combines naturally with `--max-turns`, `--max-price`, and `--e
 
 ## Anti-Patterns
 
+- **Middleware used as a phase state machine or workflow orchestrator.** Middleware fires before LLM turns — it cannot observe what the LLM just said and immediately act on it. Multi-phase orchestration belongs in the parent agent's `task` tool-call graph: each phase is a `task()` call, the result is checked, and the next phase is dispatched. Middleware is a loop guard, not a sequencer.
+- **`reset()` clearing state on compaction.** A `reset()` implementation that doesn't check `ResetReason` will silently destroy phase state whenever context compaction fires. Always guard: `if reset_reason == ResetReason.STOP: clear_state()`.
+- **Text signals used for control flow** (e.g., `PHASE_COMPLETE: X`, `VERDICT: PASS`). LLM text is not a reliable structured API. Use a custom tool call returning a `BaseModel` result instead. `get_result_extra()` is not the right place to parse control-flow signals.
 - Middleware as `after_tool` / `post_tool` hook.
 - Custom middleware presented as a config/skill-only extension, rather than source/runtime-code extension.
 - Hook used as pre-turn, tool-level, or mid-turn interceptor.

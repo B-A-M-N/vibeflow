@@ -19,11 +19,13 @@ Before proposing code, first build an internal model of Mistral Vibe workflows u
 - Skills can reference scripts/, references/, examples/
 
 ### Middleware
-- Custom middleware is valid when implemented as runtime/source code and registered with the pipeline
+- **Middleware is a loop guard, not a phase orchestrator.** It enforces turn limits, budget caps, read-only reminders, and compaction policy. It is not the right surface for sequencing workflow phases — use the `task` tool for that.
+- Active behavior is `before_turn(context)` only — fires before every LLM call in the tool loop, including after tool results. On a turn with 5 tool calls, middleware fires 6 times. Any middleware that counts "turns" or accumulates per-turn state will miscount.
+- There is no `after_turn()`. The `ConversationMiddleware` Protocol has exactly two methods: `before_turn()` and `reset()`. Nothing else exists.
+- `reset()` receives a `ResetReason` — `STOP` (session end) or `COMPACT` (context compaction). Middleware must check the reason: only clear state on `STOP`; preserve it on `COMPACT`.
 - Multiple middleware can be composed, but ordering matters because STOP and COMPACT short-circuit later middleware
-- Active behavior is `before_turn(context)` only, before each LLM call in a multi-step loop
-- Middleware can continue, stop, inject messages, or trigger compaction before LLM turns
-- Middleware cannot intercept during tool execution, after tool results, or arbitrary events unless the runtime source is changed to add that boundary
+- Middleware cannot intercept during tool execution, after tool results, or arbitrary events
+- **Registration is always Tier D**: there is no config, skill, or hook path to register middleware. The only path is `middleware_pipeline.add(mw)` in `_setup_middleware()` in `vibe/core/agent_loop.py`. The middleware class itself may be Tier C, but wiring it in always requires a source modification. A workflow that defines middleware but never registers it in `_setup_middleware()` has no effect — it silently never runs.
 
 ### Tool Execution Lifecycle
 - Tool call requested → permission/config checked → tool executes → result returned
@@ -45,11 +47,14 @@ Before proposing code, first build an internal model of Mistral Vibe workflows u
 - Defined by: id, entry criteria, exit criteria, runtime surfaces, actions, and evidence requirements
 - Phases transition via gates (continue, retry, stop, rework)
 - Each phase logs evidence (commands, files, tests, results)
+- **Phase sequencing belongs in the task tool-call graph, not in middleware.** The parent agent issues a `task()` call per phase, checks `TaskResult.completed`, and dispatches the next phase. This is Tier A/B. Middleware is a loop guard — it cannot observe what the LLM produced and cannot advance phases reactively without a structural one-turn delay on every transition.
+- **Text signals are not a valid phase-transition mechanism.** Strings like `PHASE_COMPLETE: implement` in LLM output require fragile regex parsing. Use a custom tool call returning a `BaseModel` result instead — structured, machine-readable, and not dependent on exact LLM wording.
 
 ### Entry/Exit Gates
 - Entry: conditions that must be true to start phase
 - Exit: conditions that determine phase completion
 - Gate types: success, failure, retry, human_deferral, convergence
+- **Gate evaluation must be deterministic.** Prefer tool calls with structured results over LLM text for gate decisions. `ask_user_question` for human-deferral gates; `complete_phase` custom tool for automated gates.
 
 ### Retry/Convergence Rules
 - Max retries per phase (prevents infinite loops)

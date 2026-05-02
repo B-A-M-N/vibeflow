@@ -10,12 +10,13 @@ Every workflow design must be classified by exactly one feasibility tier before 
 - `config.toml` keys: `bypass_tool_permissions` (NOT `auto_approve` — silently ignored), `active_model`, `permission`, `enabled_tools`, `disabled_tools`, `tool_paths`, `[[mcp_servers]]`, `[[connectors]]`, `enable_experimental_hooks`, `system_prompt_id`, `auto_compact_threshold`, `api_timeout`, and tool-specific config overrides. Full key reference: `vibe/core/config/_settings.py`.
 - Skills: Create `SKILL.md` files in `skill_paths` (config), `.agents/skills/` (project root, trusted folders only), `.vibe/skills/` (project root, trusted folders only), or `~/.vibe/skills/` (global). `~/.config/vibe/skills/` does **not** exist. Trusted-folder requirement applies to all project-level paths.
 - Skill format: YAML frontmatter (`name`, `description`, `allowed-tools`, `user-invocable`) + markdown body. `allowed-tools` / `allowed_tools` is **advisory only** — it is never used to filter `ToolManager.available_tools`. The model sees all available tools regardless. Use agent profile `overrides.enabled_tools` for actual restriction.
-- Custom agent profiles: Define a YAML/TOML agent profile with `agent_type = "subagent"` — no Python code needed. The `task` tool can then invoke it by name. This is a valid Tier A surface for subagent delegation.
+- **Skill discovery uses first-wins, not last-wins**: `SkillManager._discover_skills()` uses `if name not in skills` — the first skill found with a given name wins and later entries are ignored. This is the opposite of tool discovery (which uses a dict comprehension where last entry wins). A skill in `skill_paths` does NOT override a builtin skill with the same name.
+- Custom agent profiles: Define a YAML/TOML file in `~/.vibe/agents/<name>.toml` (or additional `agent_paths`). No Python code needed. Flat TOML overrides support: `system_prompt_id`, `active_model`, `disabled_tools`, `enabled_tools`, `bypass_tool_permissions`, per-tool permissions, and `agent_type = "subagent"` for task-delegatable agents. This is the correct Tier A surface for workflow-specific agent profiles. **`enabled_agents` ignores `disabled_agents` when set** — same precedence rule as tools and skills. Agents with `install_required = True` (e.g., `lean`) do not appear even if in `enabled_agents` unless also in `installed_agents`.
 - Built-in tools: ReadFile, WriteFile, EditFile, Bash, Grep, SearchReplace, Glob, LSP, WebFetch, WebSearch
 - MCP servers: Add to `[[mcp_servers]]` in config.toml (stdio, http, streamable-http transports)
 - Mistral Connectors: Remote tool surface integrated by ToolManager through ConnectorRegistry, distinct from MCP server config
 - Hooks: Create `hooks.toml` (project `.vibe/hooks.toml` or global `~/.vibe/hooks.toml`) + set `enable_experimental_hooks = true`. Hooks are shell scripts — no Python code needed. They fire after agent turns (`POST_AGENT_TURN`), support exit-code retry semantics, have a 30s default timeout, and a 3-retry limit per hook per user turn.
-- Tool discovery paths: `DEFAULT_TOOL_DIR` (builtins), `config.tool_paths`, `.vibe/tools/` (project, trusted folders only), `~/.vibe/tools/` (global). Builtins always win on name conflicts.
+- Tool discovery paths: `DEFAULT_TOOL_DIR` (builtins), `config.tool_paths`, `.vibe/tools/` (project, trusted folders only), `~/.vibe/tools/` (global). Builtins always win on name conflicts. **Tool files whose filename starts with `_` are silently skipped** — `_load_tools_from_file` returns `None` for any `_`-prefixed file. Never name custom tool files with a leading underscore.
 - `VibeConfig` (vibe/core/config/_settings.py): All runtime configuration
 
 **Constraints:**
@@ -24,6 +25,9 @@ Every workflow design must be classified by exactly one feasibility tier before 
 - Cannot change tool permission logic (vibe/core/tools/base.py)
 - Cannot add new built-in tool types without MCP
 - `task` tool only accepts profiles with `agent_type = "subagent"` — custom subagent profiles must set this field
+- **DEFAULT, AUTO_APPROVE, ACCEPT_EDITS, and LEAN profiles all have `base_disabled: ["exit_plan_mode"]`** — only PLAN and CHAT leave `exit_plan_mode` available. A workflow that needs `exit_plan_mode` must explicitly run in the `plan` profile.
+- **`chat` profile is ACP-only** — CHAT is not in `BUILTIN_AGENTS` and cannot be invoked via `--agent chat` in the CLI. It is only reachable via ACP `set_config_option(config_id="mode", value="chat")`. Do not design CLI workflows that invoke the chat profile by name.
+- **`run_programmatic()` defaults to the `auto-approve` agent** — workflows called via `run_programmatic()` without an explicit `agent_name` get full auto-approval, not the default agent. Workflows assuming a restrictive default in programmatic contexts will behave differently than expected.
 
 **Feasibility check:** Can the workflow be described entirely in config.toml + SKILL.md files + optional hooks.toml + optional agent profile TOML?
 
@@ -60,6 +64,8 @@ Every workflow design must be classified by exactly one feasibility tier before 
 - Cannot add pre-tool middleware
 
 **Feasibility check:** Does the workflow need a new tool class, but no changes to how/when tools are called?
+
+**Source-verified tool recipes:** See `references/feasibility/implementation-patterns.md` — Patterns 5–10, 13–15 for profile switching, scratchpad forwarding, permission resolution, file snapshots, sensitive_patterns, config merging, instance lifecycle, and is_available() ordering.
 
 **Example:** A custom `JiraTicket` tool that calls Jira API, placed in `.vibe/tools/`.
 

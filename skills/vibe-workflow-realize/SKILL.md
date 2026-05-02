@@ -282,6 +282,6 @@ At the end, write or append to `REALIZATION_REPORT.md`:
 - Do not mark a component `not_implementable_as_stated` without citing the specific Vibe reference that rules it out.
 - Do not assign Tier D without ruling out Tier A/B/C first.
 - Do not claim validation passed if the validator could not run or produced errors.
-- `ask_user_question` is disabled in programmatic (`-p`) and ACP contexts — flag this if the realized workflow uses it.
+- `ask_user_question` is unavailable in non-interactive contexts in three distinct ways: (1) CLI `-p` adds it to `disabled_tools`; (2) ACP disables it via `disabled_tools`; (3) `run_programmatic()` direct API does not add it to `disabled_tools` but passes no callback — it fails at runtime when invoked. Flag all three if the realized workflow uses it.
 - Subagents never run hooks — flag this if the concept assumes subagent hook behavior.
 - `allowed_tools` in skills is advisory only — flag this if the concept treats it as an access boundary.

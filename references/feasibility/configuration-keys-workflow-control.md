@@ -6,7 +6,7 @@ Use this when deciding whether a workflow can be achieved through configuration 
 
 - `api_key`
 - `active_model`
-- `auto_approve`
+- `bypass_tool_permissions` (renamed from `auto_approve` in v2.9.0; `auto_approve` is silently ignored)
 - `permission`
 - `enabled_tools`
 - `disabled_tools`

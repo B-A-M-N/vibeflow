@@ -110,7 +110,7 @@ Common workflow patterns mapped to Mistral Vibe runtime surfaces, feasibility ti
 - Does the workflow need new events, and if so, who consumes them?
 - Does persistence use real session/config/state surfaces?
 - Is the proposed component count proportionate to the problem?
-- Is the workflow interactive or headless? `ask_user_question` and approval gates are disabled in `-p` mode (`disabled_tools = ["ask_user_question"]`) and in ACP contexts.
+- Is the workflow interactive or headless? `ask_user_question` is unavailable in three distinct ways: (1) CLI `-p` / `--prompt` mode adds it to `disabled_tools` — the tool is hidden from the model; (2) ACP contexts load config with `disabled_tools=["ask_user_question"]` — same effect; (3) `run_programmatic()` called directly does NOT add it to `disabled_tools`, but passes no `user_input_callback` — the tool appears in the model's list but **fails at runtime with no callback** when invoked. All three must be accounted for separately.
 - Does the workflow use hooks? Is `enable_experimental_hooks = true` confirmed in config? Without it, hooks are silently disabled. The field has `exclude=True` and will not appear in auto-generated config.
 - Does the workflow spawn subagents via `task`? Does it handle `TaskResult.completed = False`? This fires on middleware stop AND on skipped tool calls.
 - Does the workflow depend on a stable session ID? Session ID changes after compaction — validation evidence must follow the `parent_session_id` chain.

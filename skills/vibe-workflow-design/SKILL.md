@@ -118,7 +118,11 @@ Every `surfaceDecision` entry written to `WORKFLOW_CONTRACT.json` must use this 
 
 Specific checks:
 
-- Middleware only has `before_turn(context)` active behavior plus reset. It fires before each LLM call in the multi-step loop. Do not use middleware for behavior that must happen during tool execution, after tool results, or on arbitrary events.
+- **Middleware is a loop guard, not a phase orchestrator.** If the workflow sequences phases (discover → diagnose → patch → validate), the correct surface is the `task` tool — each phase is a `task()` call and the parent agent checks `TaskResult.completed`. Middleware cannot observe what the LLM just produced and has a structural one-turn delay on every phase transition. Never design a phase state machine in middleware.
+- **Text signals are not a valid phase-transition mechanism.** Strings like `PHASE_COMPLETE: X` in LLM output require fragile regex parsing. Use a custom tool call returning a `BaseModel` result instead.
+- Middleware only has `before_turn(context)` active behavior plus reset. There is no `after_turn()`. It fires before every LLM call in the tool loop — on a turn with 5 tool calls, it fires 6 times. Middleware that counts turns or accumulates per-turn state will miscount.
+- Any middleware `reset()` implementation must check `ResetReason`: only clear state on `STOP`; preserve it on `COMPACT`. A reset that clears all state silently restarts the workflow on compaction.
+- Middleware registration requires modifying `_setup_middleware()` in `vibe/core/agent_loop.py` — this is always Tier D, regardless of how simple the middleware class is.
 - Treat `MiddlewareAction.COMPACT` as a distinct action and account for pipeline short-circuiting: `INJECT_MESSAGE` results compose, while `STOP` and `COMPACT` stop later middleware.
 - If a design proposes a skill, verify discoverability: it must live in `.vibe/skills/`, `~/.config/vibe/skills/`, or a project `skills/` directory, and its frontmatter must include `name`, `description`, `allowed-tools`, and `user-invocable`.
 - If a design uses skill `allowed-tools` / `allowed_tools`, verify it does not conflict with required tools.

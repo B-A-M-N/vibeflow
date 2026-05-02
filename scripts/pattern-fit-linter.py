@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 from typing import Any
 
 
@@ -78,11 +77,24 @@ def lint_pattern_fit(contract_path: str) -> dict[str, Any]:
             "Programmatic workflows should specify --output streaming or --output json for machine-readable evidence.",
         ))
 
-    if "mcp" in selected_surfaces and "sampling_enabled" in all_text and "justify" not in all_text and "risk" not in all_text:
+    if "mcp" in selected_surfaces:
+        has_sampling_disabled = any(
+            phrase in all_text for phrase in ["sampling_enabled = false", "sampling_enabled=false", "sampling_enabled: false"]
+        )
+        has_justification = any(term in all_text for term in ["justify", "justified", "justification", "risk", "sampling needed", "llm completion needed"])
+        if not has_sampling_disabled and not has_justification:
+            findings.append(_finding(
+                "mcp-sampling-default-enabled",
+                "warning",
+                "MCP sampling_enabled defaults to True — every configured MCP server can request LLM completions using your API key. Explicitly set sampling_enabled = false or document why LLM completions are needed.",
+            ))
+
+    text_signal_terms = ["phase_complete:", "phase complete:", "verdict: pass", "verdict: fail", "verdict:pass", "verdict:fail", "complete:", "done:"]
+    if any(term in all_text for term in text_signal_terms) and "task" not in selected_surfaces and "tool" not in selected_surfaces:
         findings.append(_finding(
-            "mcp-sampling-enabled-unjustified",
+            "text-signal-control-flow",
             "warning",
-            "MCP sampling_enabled lets the server request LLM completions; designs should justify this capability.",
+            "Design appears to use LLM text output as control-flow signals. Text signals are fragile — use a custom tool call returning a BaseModel result instead. The task tool with custom subagents is the correct surface for phase sequencing.",
         ))
 
     if "reasoning" in req_text and "model" not in all_text and "backend" not in all_text and "reasoningevent" not in all_text:
@@ -118,6 +130,21 @@ def _check_decision(decision: dict[str, str], findings: list[dict[str, Any]]) ->
                 "custom-middleware-requires-source-change",
                 "error",
                 "Custom middleware is valid, but it must be implemented/registered as runtime code; it is not a skill/config/hook-only extension.",
+                surface,
+            ))
+        phase_orchestration_terms = ["advance_phase", "advance phase", "phase_complete", "phase complete", "next phase", "phase transition", "phase sequenc", "phase state machine", "phase manager"]
+        if any(term in text for term in phase_orchestration_terms):
+            findings.append(_finding(
+                "middleware-used-as-phase-orchestrator",
+                "error",
+                "Middleware is a loop guard, not a phase orchestrator. before_turn() cannot observe LLM output and has a structural one-turn delay on every transition. Use the task tool for phase sequencing: each phase is a task() call, the parent checks TaskResult.completed, and dispatches the next phase.",
+                surface,
+            ))
+        if "reset" in text and "compact" in text and "resetreason" not in text and "reset_reason" not in text:
+            findings.append(_finding(
+                "middleware-reset-compaction-unhandled",
+                "warning",
+                "Middleware reset() must check ResetReason to distinguish STOP (clear state) from COMPACT (preserve state). A reset() that clears all state will silently restart the workflow when compaction fires.",
                 surface,
             ))
         if "compact" in text and "middlewareaction.compact" not in text and "compact action" not in text:

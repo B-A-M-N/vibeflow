@@ -12,10 +12,12 @@ Many real workflows combine tiers. Classify the whole design by the highest requ
 ## A + C: Skill With Middleware Guard
 
 - Skill provides workflow instructions.
-- Middleware injects phase state or blocks unsafe continuation before LLM turns.
-- Overall tier: C.
+- Middleware injects context or blocks unsafe continuation before LLM turns (turn limits, budget guards, read-only reminders).
+- Overall tier: C (middleware logic) + D (registration in `_setup_middleware()`).
+- **Critical mistake: using middleware as a phase state machine.** Middleware cannot observe what the LLM just produced. It runs before the next LLM call. A middleware that advances workflow phases based on LLM output has a structural one-turn delay on every transition and is fragile to any variation in LLM text. The correct surface for phase sequencing is the `task` tool — each phase is a separate `task()` call from the parent agent.
 - Common mistake: expecting middleware to run after tool execution.
-- Common mistake: assuming `before_turn()` fires once per user message. It fires before **every LLM call** in the tool loop — including after tool results when the loop continues. On a multi-tool turn, a skill + middleware design will see `before_turn()` called once per tool batch plus once for the final response. Execution order per user message: reset hook retries → loop: `before_turn()` → LLM call + tools → (if hook retries: inject message, loop again with another `before_turn()`).
+- Common mistake: assuming `before_turn()` fires once per user message. It fires before **every LLM call** in the tool loop. On a turn with 5 tool calls, middleware fires 6 times. Middleware that counts "turns" or accumulates per-turn state will miscount. Execution order: reset hook retries → loop: `before_turn()` → LLM call + tools → (if hook retries: inject message, loop again with another `before_turn()`).
+- Common mistake: `reset()` not checking `ResetReason`. A middleware that clears all state on any `reset()` call will silently restart when context compaction fires (`ResetReason.COMPACT`). Guard: `if reset_reason == ResetReason.STOP: clear_state()`.
 
 ## B + C: Tool With Turn-Level Policy
 
@@ -62,6 +64,18 @@ When a hook requests a retry, the loop continues and middleware fires again befo
 - `ContextWarningMiddleware` may fire on the hook-triggered turn if context grew.
 - Any stateful middleware tracking "first turn" will see the hook-triggered call as a subsequent turn.
 
+## A: Multi-Phase Workflow via Task Tool (NOT Middleware)
+
+The correct pattern for multi-phase workflow orchestration. The parent agent sequences phases by issuing `task()` calls and checking `TaskResult.completed` between them.
+
+- Overall tier: A (built-in profiles) or B (custom subagent profiles + custom tools).
+- Phase signal: the parent agent issues the next `task()` call when the previous one completes — no middleware, no text parsing, no state machine.
+- State across phases: write state to the scratchpad or a workflow YAML file; pass the path in each task prompt.
+- **Why not middleware**: middleware fires before LLM calls, cannot observe LLM output, and has no after_turn(). A middleware-based phase machine has a structural one-turn delay on every transition and silently misbehaves if compaction fires mid-phase.
+- **Why not text signals**: `PHASE_COMPLETE: X` in LLM output requires regex parsing that breaks on any wording variation. Use a custom `complete_phase` tool returning a `BaseModel` instead.
+- Common mistake: designing the phase state machine in middleware and the task dispatch in skills — these two surfaces see different execution points and will diverge.
+- Common mistake: not handling `TaskResult.completed = False` — both middleware stops and unhandled exceptions produce `completed=False`; the parent prompt must check it.
+
 ## A + A/B: Subagent Delegation
 
 - Parent uses the built-in `task` tool to delegate to a subagent profile.
@@ -89,5 +103,7 @@ If a user idea is impossible as stated but feasible with a different implementat
 |---|---|
 | Middleware that runs after each tool call | `get_result_extra()` on the tool (Tier B) — injects context after the tool result; middleware cannot intercept post-tool |
 | Hook that fires before the agent turn | No pre-turn hook exists; use middleware `INJECT_MESSAGE` (Tier C) to inject context before the LLM call |
+| Middleware-based phase state machine | `task` tool for each phase (Tier A/B) — parent agent dispatches phases as sequential task calls and checks `TaskResult.completed`; no middleware needed |
+| Text signal control flow (`PHASE_COMPLETE: X`) | Custom tool call returning `BaseModel` (Tier B) — structured, machine-readable, and not dependent on exact LLM wording |
 | Skill `allowed_tools` as a hard tool-access boundary | Agent profile flat-TOML `enabled_tools` override (Tier A) for actual restriction |
 | Subagent that writes project files autonomously | Custom subagent profile with write tools permitted (Tier A/B) — "subagents can't write" is prompt guidance on `explore`, not a runtime block |

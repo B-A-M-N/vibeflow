@@ -8,9 +8,12 @@ Every tool must implement this contract:
 
 ```python
 class BaseTool(Generic[TAgs, TRes, TConfig, TState]):
-    # Identity — name is a ClassVar[str] or via get_name() classmethod, NOT a @property
-    # description is a ClassVar[str], NOT a @property
-    name: ClassVar[str]
+    # Identity — there is NO name ClassVar on BaseTool. The registered tool name comes from
+    # get_name(), a classmethod that converts the class name from CamelCase to snake_case.
+    # A class named MyCustomTool registers as my_custom_tool. Do NOT declare a name ClassVar.
+    # Override get_name() to return a custom string — this is the only way to use names with
+    # hyphens or other characters that CamelCase conversion cannot produce (e.g., "my-tool").
+    # description is a ClassVar[str], NOT a @property.
     description: ClassVar[str]
 
     # Configuration
@@ -23,7 +26,11 @@ class BaseTool(Generic[TAgs, TRes, TConfig, TState]):
     # Execution — actual call chain: AgentLoop._execute_tool_call → invoke(ctx, **raw) → run(args, ctx)
     # There is no __call__ on BaseTool. invoke() validates args via Pydantic before calling run().
     def invoke(self, ctx: InvokeContext, **raw_kwargs) -> TRes: ...  # Entry point (validates args)
-    def run(self, args: TAgs, ctx: InvokeContext) -> TRes: ...       # Implementation target
+    async def run(self, args: TAgs, ctx: InvokeContext) -> AsyncIterator[ToolStreamEvent | TRes]: ...
+    # run() is an async generator. It MUST yield exactly one ToolResult before returning.
+    # Yielding ToolStreamEvent before the result streams progress to the UI.
+    # If run() returns without yielding a ToolResult, AgentLoop raises ToolError("Tool did not yield a result").
+    # A tool with an early-return guard clause that doesn't yield will silently produce a tool failure.
 
     # Rewind / availability — no get_permission() classmethod; permission via BaseToolConfig.permission
     def get_file_snapshot(self, args: TAgs) -> ...: ...  # Called before run() for session rewind. Override in tools that modify files.
@@ -34,14 +41,16 @@ class BaseTool(Generic[TAgs, TRes, TConfig, TState]):
 **Generic parameters:**
 - `TArgs`: Pydantic model for input validation (must inherit `ToolArgs`)
 - `TRes`: Pydantic model for output (must inherit `ToolResult`)
-- `TConfig`: Pydantic model for config (must inherit `BaseToolConfig`)
-- `TState`: must inherit `BaseToolState` (Pydantic model with `extra="forbid"`) — not an arbitrary dict
+- `TConfig`: Pydantic model for config (must inherit `BaseToolConfig`). Uses Pydantic `extra="allow"` — undeclared fields in TOML config are silently accepted.
+- `TState`: must inherit `BaseToolState` (Pydantic model with `extra="forbid"`) — not an arbitrary dict. Undeclared fields raise `ValidationError` at instantiation.
 
 **Permission** — there is no `get_permission()` classmethod on `BaseTool`. Permission is controlled by:
 - `BaseToolConfig.permission: ToolPermission` — default is `ToolPermission.ASK`
 - `resolve_permission(args, ctx)` — per-invocation override called before config-level permission
 
 **`ToolPermission` values are lowercase StrEnum**: `"always"`, `"ask"`, `"never"`. Config files must use lowercase. `permission = "always"` not `"ALWAYS"`.
+
+**No approval callback = silent SKIP**: if `approval_callback` is `None` and a tool's effective permission is `"ask"`, `_ask_approval()` returns `SKIP` with reason `"Tool execution not permitted."` — no error, no exception. The LLM receives a skipped tool result and may retry or give up. This happens in any context without a wired-up callback (programmatic, some subagent contexts). Tools that must execute in these contexts must use `permission: "always"` or `resolve_permission()` to return `"always"`.
 
 **Capability flags** (in `BaseToolConfig`, vibe/core/tools/base.py:99-115):
 - `permission: ToolPermission` — `"always"`, `"ask"`, `"never"`
@@ -53,9 +62,10 @@ class BaseTool(Generic[TAgs, TRes, TConfig, TState]):
 - `resolve_permission(args, ctx)` — per-invocation permission override before config-level permission.
 - `get_result_extra()` — post-tool context injection to the LLM alongside the tool result.
 - `BaseToolState` — session-local persistent state (Pydantic model, `extra="forbid"`).
-- `get_tool_prompt()` / `prompt_path` — tool-specific prompt content injected into the system prompt.
+- `get_tool_prompt()` / `prompt_path` — tool-specific prompt content injected into the system prompt. **Cached at the class level** via `@functools.cache` on the classmethod — loaded once per class per process lifetime. Modifying the `.md` prompt file while Vibe is running has no effect until restart.
 - `get_file_snapshot()` — capture file state before `run()` for the rewind system; override in tools that modify files.
-- `is_available()` — platform/dependency gate; tool is hidden from `available_tools` when `False`.
+- `is_available()` — platform/dependency gate; tool is hidden from `available_tools` when `False`. Evaluated at discovery time, not per invocation.
+- **`ToolStreamEvent`** — yield from `run()` before the final result to stream progress: `yield ToolStreamEvent(tool_name=..., message=..., tool_call_id=ctx.tool_call_id)`. The CLI displays these; ACP forwards them as `ToolCallProgress` events. Use for long-running tools to avoid appearing frozen.
 
 ## InvokeContext (vibe/core/tools/base.py:42-57)
 
@@ -78,7 +88,9 @@ class InvokeContext:
 
 **What this means for tool implementors:** Tools can access agent/skill managers, request approval, ask user, switch agent profiles, and access scratchpad/plan paths through this context. All fields may be `None` — guard before use.
 
-`switch_agent_callback` is the supported tool-orchestration path for profile switching. Do not model profiles as general autonomous coworkers unless the runtime exposes that mechanism.
+`switch_agent_callback` is the supported tool-orchestration path for profile switching. It is `AgentLoop.switch_agent` — an async callable that takes a profile name string. **Timing**: `AgentProfileChangedEvent` is emitted after all tool calls in the turn complete, not immediately when the callback is invoked. The ACP layer silently drops `AgentProfileChangedEvent` — ACP clients never see profile switches. The profile change itself takes effect on the next LLM turn regardless.
+
+**`approval_callback` being `None` causes silent SKIP**: if `approval_callback is None` and a tool's effective permission is `"ask"`, the tool is silently skipped — `ToolResultEvent.skipped = True`, `skip_reason = "Tool execution not permitted."`. No exception, no error. Guard against this in any context without an explicit approval callback (programmatic, subagent without allowlist, etc.) by setting `permission: "always"` or overriding `resolve_permission()` to return `"always"`.
 
 ## ConversationMiddleware Protocol (vibe/core/middleware.py)
 
@@ -99,6 +111,8 @@ def reset(self, reset_reason: ResetReason = ResetReason.STOP) -> None:
 ```
 
 `ResetReason` has two values: `ResetReason.STOP` (session or middleware halt) and `ResetReason.COMPACT` (context compaction). Custom middleware must handle both paths. The pipeline calls `reset()` with the appropriate reason on every STOP or COMPACT event.
+
+**Source-verified middleware recipes:** See `references/feasibility/implementation-patterns.md` — Patterns 1–4 for stats-based STOP, threshold COMPACT with metadata, one-shot INJECT_MESSAGE, and profile-aware enter/exit injection.
 
 **MiddlewareAction** (vibe/core/middleware.py):
 ```python

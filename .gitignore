@@ -21,3 +21,7 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local / sensitive data
+.gemini_security/
+*.db

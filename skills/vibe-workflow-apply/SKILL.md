@@ -84,6 +84,9 @@ Common fixes per violation type:
   - **Tool name in `enabled_tools` must match `BaseTool.get_name()` exactly.** `get_name()` converts CamelCase to snake_case. A mismatch means the tool is silently absent from the LLM schema in that phase.
   - Do not implement a `state.json` mechanism for persisting phase across compaction. The active agent profile survives compaction automatically. If the design calls for phase to survive compaction, encode the phase in the active agent profile, not in a state file read each turn.
   - If the design claims subagent or per-phase isolation, verify it uses the `task` tool to spawn a fresh AgentLoop — not just profile switching within one loop.
+  - **Agent TOML must use flat top-level keys.** No `[agent]`, `[agent.system_prompt]`, `[agent.permissions]` sections. Only `display_name`, `description`, `safety` (`safe`/`neutral`/`destructive`/`yolo`), and `agent_type` are profile metadata. Everything else (system prompt, model, tool permissions, enabled_tools) is flat top-level keys or `[tools.X]` sub-tables.
+  - **Skills must be SKILL.md markdown files, not Python constants.** `SkillInfo` is an internal model, not a format you write. Every skill must be a directory with a `SKILL.md` containing YAML frontmatter.
+  - **Agents are not configured in config.toml.** No `[agents.X]` section exists. Agents are discovered from `.toml` files in agent directories.
 - Set validation to serial, evidence-bearing, and non-mutating: `serial: true`, `evidenceRequired: true`, `mutatesWorkflow: false`.
 - Ensure the generated workflow can be consumed by its generated or required tools with no parser/schema mismatch.
 - If validation tooling would fail because the workflow/tooling contract is incomplete, fix that during apply.

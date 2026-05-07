@@ -178,6 +178,8 @@ When hardening an existing workflow, explicitly check whether an invented mechan
 - profile switching where the design claims subagent isolation -> `task` tool to spawn a fresh AgentLoop per phase
 - custom tools in `vibe/core/tools/builtins/` -> move to skill-bundled or config/tool_paths directory
 - model names in profile TOMLs not declared in config.toml -> add model alias to `~/.vibe/config.toml` first
+- "scope enforced by enabled_tools" -> `enabled_tools` only controls which tools the LLM can call, not which paths they can access. Use per-tool allowlist/permission overrides, phase-advance validation logic, or `resolve_permission()` for file-level scope
+- skill-bundled tool that doesn't appear in the tool schema -> verify the class inherits `BaseTool` correctly and has no import errors; placement alone doesn't guarantee discovery
 
 ## Proposed Update
 

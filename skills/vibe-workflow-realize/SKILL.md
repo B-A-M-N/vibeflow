@@ -293,3 +293,5 @@ After validation, produce a mermaid diagram of the complete realized workflow as
 - Do not use `state.json` to persist phase across compaction — the agent profile survives compaction natively.
 - Profile switching within one AgentLoop is not subagent isolation. True isolation requires `task` to spawn a fresh AgentLoop with its own message history.
 - Every model name referenced in an agent profile TOML must be declared as a model alias in `~/.vibe/config.toml` first.
+- **`enabled_tools` does not enforce file scope.** It only controls which tools the LLM can call, not which paths those tools can access. If the concept claims "scope enforced by enabled_tools," flag it — file-level scope requires per-tool allowlist overrides, phase-advance validation, or `resolve_permission()`.
+- **Skill-bundled tools work but verify they load.** `skill_dir/tools/` and `config.tool_paths` both work for tool discovery, but always confirm the tool appears in the schema — check that the class inherits `BaseTool` correctly and has no import errors before relying on it.

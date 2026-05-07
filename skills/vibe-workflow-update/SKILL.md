@@ -109,6 +109,10 @@ Look for:
 - validation failures, stale evidence, or drift reports
 - canonical schema or frontmatter problems
 - missed native runtime primitives such as `ask_user_question`, `exit_plan_mode`, `todo`, scratchpad, `task`, `webfetch`, `websearch`, AGENTS.md, `POST_AGENT_TURN` hooks, or programmatic output
+- custom tools placed in `vibe/core/tools/builtins/` (should be skill-bundled or in config/tool_paths)
+- `state.json` used for phase persistence across compaction (unnecessary — agent profile survives compaction)
+- profile switching used where the design claims subagent isolation (profile switch ≠ isolation; `task` tool required)
+- model names in agent profile TOMLs that are not declared in `~/.vibe/config.toml`
 
 Use existing scripts when applicable:
 
@@ -170,6 +174,10 @@ When hardening an existing workflow, explicitly check whether an invented mechan
 - delegated file writer -> parent writes, subagent returns text
 - custom pre/tool hook -> impossible without source change; `POST_AGENT_TURN` only
 - manual CI evidence -> programmatic `--output streaming` / `--output json`
+- `state.json` for phase persistence across compaction -> encode phase in the active agent profile (survives compaction natively)
+- profile switching where the design claims subagent isolation -> `task` tool to spawn a fresh AgentLoop per phase
+- custom tools in `vibe/core/tools/builtins/` -> move to skill-bundled or config/tool_paths directory
+- model names in profile TOMLs not declared in config.toml -> add model alias to `~/.vibe/config.toml` first
 
 ## Proposed Update
 
@@ -217,7 +225,10 @@ Do not edit implementation or lifecycle files until the user approves.
 
 After approval:
 
-- produce a mermaid diagram of the proposed changes as `SystemName-PROPOSED#.md` (where `#` is the next iteration number); the diagram must show what will change vs. the current `SystemName-ORIGINAL.md`; double-check that the proposed diagram truthfully represents the approved proposal before proceeding — if it doesn't match, fix the diagram or the proposal before editing files
+- produce a mermaid diagram of the proposed changes; decide whether to overwrite the existing PROPOSED diagram or create a new `SystemName-PROPOSED#.md`:
+  - **Overwrite** when the update is an architectural fix or refinement within the same intent direction (e.g., fixing tool placement, correcting compaction behavior, adjusting phase-gate mechanics)
+  - **Create a new PROPOSED#** when the update represents a genuine change in intent direction (e.g., adding phases, changing fundamental topology, introducing new surfaces that alter end-to-end flow)
+  - the diagram must show what will change vs. the current `SystemName-ORIGINAL.md`; double-check that it truthfully represents the approved proposal before proceeding
 - edit only files named in the approved update proposal unless a scoped deviation becomes necessary
 - preserve rejected/not-applicable surfaces unless the approved change reclassifies them
 - update selected surfaces with implementation and validation evidence when changed

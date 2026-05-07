@@ -80,6 +80,9 @@ Common fixes per violation type:
   - Generated skills must have a `name` field that matches the directory name and follows the pattern `^[a-z0-9]+(-[a-z0-9]+)*$`. Names like "PRForge" or "MySkill" are invalid. The skill directory name and frontmatter `name` must match exactly.
   - If the design requires scope enforcement (blocking file edits outside allowed patterns), this must be implemented as a custom `BaseTool` subclass with `resolve_permission()` or via the `approval_callback` mechanism — **never** as middleware. Middleware cannot intercept individual tool calls.
   - If the design requires phase-gate enforcement, the phase transition must be triggered by a custom tool that calls `ctx.switch_agent_callback(profile_name)`. The new profile's `enabled_tools`/`disabled_tools` provides the actual enforcement. Do not rely on middleware or skill text alone for phase enforcement.
+  - Custom tools must be skill-bundled or in config/tool_paths — **never** in `vibe/core/tools/builtins/`. That directory is core infrastructure; placing workflow-specific tools there is a Tier D source modification.
+  - Do not implement a `state.json` mechanism for persisting phase across compaction. The active agent profile survives compaction automatically. If the design calls for phase to survive compaction, encode the phase in the active agent profile, not in a state file read each turn.
+  - If the design claims subagent or per-phase isolation, verify it uses the `task` tool to spawn a fresh AgentLoop — not just profile switching within one loop.
 - Set validation to serial, evidence-bearing, and non-mutating: `serial: true`, `evidenceRequired: true`, `mutatesWorkflow: false`.
 - Ensure the generated workflow can be consumed by its generated or required tools with no parser/schema mismatch.
 - If validation tooling would fail because the workflow/tooling contract is incomplete, fix that during apply.

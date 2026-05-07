@@ -289,3 +289,7 @@ After validation, produce a mermaid diagram of the complete realized workflow as
 - `ask_user_question` is unavailable in non-interactive contexts in three distinct ways: (1) CLI `-p` adds it to `disabled_tools`; (2) ACP disables it via `disabled_tools`; (3) `run_programmatic()` direct API does not add it to `disabled_tools` but passes no callback — it fails at runtime when invoked. Flag all three if the realized workflow uses it.
 - Subagents never run hooks — flag this if the concept assumes subagent hook behavior.
 - `allowed_tools` in skills is advisory only — flag this if the concept treats it as an access boundary.
+- Custom tools must be skill-bundled or in config/tool_paths — never in `vibe/core/tools/builtins/`. That's core infrastructure.
+- Do not use `state.json` to persist phase across compaction — the agent profile survives compaction natively.
+- Profile switching within one AgentLoop is not subagent isolation. True isolation requires `task` to spawn a fresh AgentLoop with its own message history.
+- Every model name referenced in an agent profile TOML must be declared as a model alias in `~/.vibe/config.toml` first.

@@ -217,6 +217,7 @@ Do not edit implementation or lifecycle files until the user approves.
 
 After approval:
 
+- produce a mermaid diagram of the proposed changes as `SystemName-PROPOSED#.md` (where `#` is the next iteration number); the diagram must show what will change vs. the current `SystemName-ORIGINAL.md`; double-check that the proposed diagram truthfully represents the approved proposal before proceeding — if it doesn't match, fix the diagram or the proposal before editing files
 - edit only files named in the approved update proposal unless a scoped deviation becomes necessary
 - preserve rejected/not-applicable surfaces unless the approved change reclassifies them
 - update selected surfaces with implementation and validation evidence when changed
@@ -258,6 +259,13 @@ Add a change record to `WORKFLOW_CONTRACT.json`. Each record that modifies a sur
 If the workflow originated from realize mode (`phase: realize-approved`), write the same amendment entry to `REALIZATION_CONTRACT.json` under its `amendments` array.
 
 Missing any of the five amendment fields (`old_surface`, `new_surface`, `reason`, `affected_files`, `revalidation_targets`) will fail `design-contract-linter.py`. Do not emit a partial amendment.
+
+## Post-Apply Diagram Update
+
+After all edits are applied and before running validation:
+
+- update `SystemName-ORIGINAL.md` to reflect the new state of the workflow; if the update was the first iteration, rename/create it from the latest `SystemName-PROPOSED#.md` and ensure it truthfully represents the as-built workflow
+- if the diagram cannot truthfully represent the workflow (gaps, contradictions), flag this as a risk — the diagram is a sanity check, not decoration
 
 ## Validation
 

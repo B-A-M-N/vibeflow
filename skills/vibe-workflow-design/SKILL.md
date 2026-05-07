@@ -206,5 +206,6 @@ After approval:
 - write `DESIGN.md`, including the architecture sanity check decisions and selected/rejected runtime surfaces
 - write `ARCHITECTURE.md`, including component placement, middleware/hook/tool/agent boundaries, and data/control flow
 - update `WORKFLOW_CONTRACT.json` with design status, selected runtime surfaces, feasibility tier, approved components, `design.requirements`, and `design.surfaceDecisions`
+- produce a mermaid diagram of the complete approved workflow as `SystemName-ORIGINAL.md`, showing end-to-end flow including all phases, gates, surfaces, and data/control paths; double-check that the diagram truthfully matches the approved design before writing it
 
 Then hand off to `vibe-workflow:plan`.

@@ -273,6 +273,10 @@ At the end, write or append to `REALIZATION_REPORT.md`:
 - Validation results
 - Unresolved gaps
 
+## Post-Realization Diagram
+
+After validation, produce a mermaid diagram of the complete realized workflow as `SystemName-ORIGINAL.md`, showing end-to-end flow including all phases, gates, surfaces, and data/control paths. Double-check that the diagram truthfully matches the as-built implementation before writing it. If the diagram reveals gaps or contradictions, flag them as unresolved risks.
+
 ---
 
 ## Hard Rules

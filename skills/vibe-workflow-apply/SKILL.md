@@ -86,6 +86,14 @@ Common fixes per violation type:
 - Apply is not complete unless the generated manifest parses through `workflow_manifest.py` and passes `workflow-linter.py`. If full validation cannot run, mark implementation attempted, not complete.
 - Apply is not complete unless `design-contract-linter.py` passes or reports only that `WORKFLOW_CONTRACT.json` is unavailable for a standalone manifest check.
 
+## Post-Implementation Diagram Check
+
+Before handing off to validate, check whether `SystemName-ORIGINAL.md` exists:
+
+- If it exists: verify the diagram still truthfully represents the as-built workflow; update it if implementation diverged from the design
+- If it does not exist: produce it now, showing the complete end-to-end workflow as implemented
+- If the diagram cannot truthfully represent the workflow, flag the discrepancy as an unresolved risk
+
 ## Evidence
 
 Record:
@@ -96,5 +104,6 @@ Record:
 - tests/checks run
 - failures found
 - unresolved risks
+- diagram status: updated / created / flagged
 
 After implementation, hand off to `vibe-workflow:validate`.

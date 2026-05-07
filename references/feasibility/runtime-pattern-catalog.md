@@ -87,6 +87,56 @@ Skill metadata includes `allowed_tools`, but this field is **advisory only and n
 - Use tool state only for session-local state, not cross-session persistence.
 - Use profile switching only through supported callback/profile behavior, not invented autonomous roles.
 
+## B: Scope Enforcement via Tool (NOT Middleware)
+
+Use this when the workflow must restrict which files or paths the LLM can edit.
+
+**Valid mechanism**
+
+- Custom `BaseTool` subclass that wraps write/edit operations with `resolve_permission()` checking the target path against an allowlist/denylist.
+- Or: `approval_callback` on `AgentLoop` that inspects tool call arguments and denies out-of-scope operations.
+- The tool/callback writes a state file (`.workflow-state.json`) recording the scope decision. The LLM reads this file on subsequent turns to know what's allowed.
+
+**Why not middleware**: middleware only runs `before_turn()` — once before the LLM call. It has no visibility into which tools the LLM will call or what arguments they'll carry. A middleware that claims to "block each file edit" or "check each tool call as it happens" is architecturally impossible.
+
+**Not valid for**
+- Using middleware `before_turn()` to inspect or block individual tool calls.
+- Using skill `allowed_tools` as a scope boundary (advisory only).
+
+**Fit checks**
+- If the tool's permission is `"ask"` and no `approval_callback` is wired, the tool is silently skipped — no exception.
+- Scope decisions that must survive compaction should be written to a state file, not held in middleware instance state.
+
+## B: Phase-Gate Enforcement via Tool + Profile Switch
+
+Use this when the workflow has distinct phases with different tool permissions (e.g., plan vs. implement).
+
+**Valid mechanism**
+
+1. Workflow starts in a `plan` profile (or custom profile with read-only tools).
+2. LLM finishes planning, calls a custom tool: `advance_phase(from="PLAN", to="IMPLEMENT")`.
+3. The tool validates the transition, writes state to disk, and calls `ctx.switch_agent_callback("implement-profile")`.
+4. `reload_with_initial_messages()` rebuilds `ToolManager`, `SkillManager`, system prompt, and backend.
+5. The new profile's `enabled_tools`/`disabled_tools` physically prevents the LLM from calling tools not in that set.
+6. On the next LLM turn, the model literally cannot call `gh pr create` — it's not in `available_tools`.
+
+**Why not middleware**: middleware cannot enforce phase boundaries. It runs before LLM calls but cannot prevent the LLM from calling any tool. Only agent profile `enabled_tools`/`disabled_tools` provides actual tool restriction.
+
+**Why not just skill text**: skill text is guidance the LLM can ignore. A profile switch changes what tools the runtime exposes — the LLM physically cannot call tools not in the profile's `enabled_tools`.
+
+**The trigger is the critical piece**: without a custom tool calling `switch_agent_callback`, there is no enforcement — just text saying "don't use that tool yet." The tool is the only reliable trigger because the LLM must call it to advance, and the tool performs the switch as a side effect.
+
+**Not valid for**
+- Using middleware to "detect phase completion" from LLM text output.
+- Using text signals like `PHASE_COMPLETE: implement` for phase transitions.
+- Relying on skill instructions alone to enforce phase boundaries.
+
+**Fit checks**
+- `switch_agent` wipes `todo` state (new `ToolManager`). Persist todo to a file before switching if needed.
+- `switch_agent` preserves full message history — the new profile sees all previous conversation.
+- `switch_agent` preserves middleware — custom middleware from the previous profile remains active unless explicitly cleared.
+- The backend is rebuilt via `self.backend_factory()` during `reload_with_initial_messages()` — this is how the new profile's `active_model` takes effect.
+
 ## Built-In Workflow Tools
 
 ### `ask_user_question`
@@ -633,4 +683,46 @@ Programmatic mode combines naturally with `--max-turns`, `--max-price`, and `--e
 - Hook script that uses `exit 2` without printing stdout — empty stdout on exit code 2 silently emits a warning and does NOT trigger a retry.
 - Config that references `auto_approve` — it was renamed to `bypass_tool_permissions` in v2.9.0 and is silently ignored under the old name.
 - Interactive workflow (`ask_user_question`, user approval gates) designed without accounting for headless/programmatic mode, where the model is instructed to never wait for input.
+- **Middleware used as a scope guard to block individual tool calls.** Middleware only runs `before_turn()` — it cannot see or block individual tool calls mid-turn. Use a custom `BaseTool` with `resolve_permission()` or `approval_callback` for scope enforcement.
+- **Phase-gate enforcement without a tool trigger.** Saying "restrict tools per phase via agent profiles" without a custom tool calling `switch_agent_callback` is not enforcement — it's guidance the LLM can ignore. The tool is the only reliable trigger because it performs the profile switch as a side effect.
+- **AgentLoop writing workflow state files.** `AgentLoop` has no API to write arbitrary state files. The only persistence it performs is `SessionLogger` (conversation history). Workflow state must be written by the LLM via tool calls.
+- **Skill name that doesn't match the directory or pattern.** Skill names must match `^[a-z0-9]+(-[a-z0-9]+)*$` and match the directory name. Names like "PRForge" are invalid — use `pr` instead.
+- **`after_turn()` in middleware.** The `ConversationMiddleware` Protocol only defines `before_turn()` and `reset()`. There is no `after_turn()`, `after_tool()`, `post_tool()`, or any post-tool hook. Any design using these is built on a non-existent extension point.
+- **Compaction survival via `advance_phase` tool.** After `compact()`, the system prompt (already rebuilt for the current phase) is preserved. The LLM continues working — it does NOT call `advance_phase` to restore state. If detailed state is needed, the LLM reads the state file via `read_file`/`bash`, but this is not automatic and not a call to the advance tool.
+- **Missing backend rebuild in profile switch sequence.** When `reload_with_initial_messages()` runs, it rebuilds the backend via `self.backend_factory()` before rebuilding the ToolManager. This is how the new profile's `active_model` takes effect. A diagram or design that shows the model change coming from rebuilding the system prompt (without the backend rebuild) is incorrect.
 - Workflow that spawns subagents and assumes they always complete — `TaskResult.completed = False` when middleware stops a subagent, and the parent will not handle it unless the workflow prompt explicitly checks for it.
+- **Middleware that calls `switch_agent_callback`.** `ConversationMiddleware.before_turn()` receives only `ConversationContext` (fields: messages, stats, config). `switch_agent_callback` lives exclusively in `InvokeContext`, which is only passed to tools during `BaseTool.invoke()`. Middleware cannot trigger profile switches.
+- **Custom middleware returning COMPACT without metadata.** `AgentLoop._handle_middleware_result()` reads `result.metadata.get('old_tokens', ...)` and `result.metadata.get('threshold', ...)` when handling `MiddlewareAction.COMPACT`. Without these keys, it falls back to `self.stats.context_tokens` and the model's `auto_compact_threshold`, producing misleading telemetry and `CompactStartEvent` payloads.
+- **Hook type other than `post_agent_turn`.** `HookType` is a `StrEnum` with exactly one member: `POST_AGENT_TURN`. Any design referencing `pre_agent_turn`, `on_tool_call`, `on_error`, `pre_turn`, or `post_tool_call` will fail at `HookConfig` validation.
+- **Agent profile in non-`.toml` format.** `AgentManager._discover_agents()` only globs `*.toml` files. Profiles written as `.yaml`, `.json`, or `.md` are silently ignored — no error, no warning.
+- **Tool permission value outside `{always, never, ask}`.** `ToolPermission` only defines `ALWAYS`, `NEVER`, `ASK`. `ToolPermission.by_name()` raises `ToolPermissionError` for anything else. Values like `conditional`, `once`, `prompt`, `require`, or `skip` are invalid.
+- **Subagent profile used as primary agent.** `AgentManager.__init__` raises `ValueError` if a profile with `agent_type != AgentType.AGENT` is passed as the initial agent. Subagent-typed profiles cannot be used as `--agent` flag values.
+- **Subagent tool accessing `ctx.scratchpad_dir`.** `AgentLoop.__init__` sets `scratchpad_dir = None` when `is_subagent=True`. `InvokeContext.scratchpad_dir` is always `None` inside subagent tool calls. The parent's scratchpad path is passed as text in the task prompt, not via `InvokeContext`.
+- **Hook command that is a Python import path.** `HookConfig.command` is a shell command string executed as a subprocess. Python dotted paths (`my_package.module:handler`) pass validation (non-blank string check only) but fail at subprocess execution.
+- **`BaseTool` subclass with `Tool` suffix or acronym class names.** `BaseTool.get_name()` derives the registered name via `re.sub(r'(?<!^)(?=[A-Z])', '_', class_name).lower()`. `WriteFileTool` registers as `write_file_tool` (not `write_file`). `PRForgeTool` registers as `p_r_forge_tool`. Avoid the `Tool` suffix and consecutive uppercase letters (acronyms) in class names.
+- **Skill `allowed-tools` with comma-separated values.** `SkillMetadata.parse_allowed_tools` splits on whitespace via `.split()`, not commas. `allowed-tools: "bash, grep"` is parsed as a single tool name `"bash,"` — silently broken. Use space-separated values.
+- **Middleware used as scope guard to block individual tool calls.** (Reiterated from above for visibility) Middleware only runs `before_turn()` — it cannot see or block individual tool calls mid-turn.
+- **Tool file starting with underscore.** `ToolManager._load_tools_from_file()` returns `None` immediately if the filename starts with `_`. A custom tool in `_helpers.py` or `_my_tool.py` is silently ignored — no warning, no error.
+- **Tool import error silently dropped.** `_load_tools_from_file()` wraps `spec.loader.exec_module(module)` in a bare `except Exception: return`. A syntax error, bad import, or `NameError` in a custom tool file causes it to be silently dropped.
+- **Tool state mutated without lock across concurrent calls.** `ToolManager.get()` caches one instance per tool name. `_run_tools_concurrently()` runs all tool calls in the same LLM turn as parallel `asyncio.Tasks`. Any mutation of `self.state` inside `run()` without an `asyncio.Lock` is a data race.
+- **Agent name from TOML `name` key.** `AgentProfile.from_toml()` sets `name=path.stem` — the filename without extension. A `name = "my-agent"` key inside the TOML goes into `overrides` as an unknown config key, not the agent identity. The agent name is always the filename stem.
+- **Agent safety value outside `{safe, neutral, destructive, yolo}`.** `AgentSafety` only has those 4 values. Any other value raises `ValueError` at load time, causing the agent to be silently skipped.
+- **Duplicate agent name across search paths.** `_discover_agents()` skips duplicate agent names with only a `logger.debug()` call — no user-visible warning. Search path order determines which wins.
+- **SKILL.md not in a subdirectory.** `SkillManager._discover_skills_in_dir()` iterates `base.iterdir()`, skips non-directories, then looks for `<dir>/SKILL.md`. A SKILL.md at the search path root is silently ignored.
+- **Skill name doesn't match directory name.** `_parse_skill_file()` logs a warning when `metadata.name != skill_path.parent.name` but loads under `metadata.name`. The directory name is cosmetic; the frontmatter name is what matters for invocation.
+- **Custom skill name matching builtin.** `_discover_skills_in_dir()` silently skips any custom skill whose `metadata.name` matches a builtin skill name.
+- **Middleware INJECT_MESSAGE lost before STOP/COMPACT.** `MiddlewarePipeline.run_before_turn()` accumulates `INJECT_MESSAGE` results, but `STOP`/`COMPACT` short-circuits and discards all accumulated injections. Place injectors after stop/compact middleware.
+- **Hook retry writing to stderr instead of stdout.** `HooksManager.run()` only triggers retry when `exit_code == RETRY` and `result.stdout` is non-empty. A hook that exits 2 but writes to stderr falls through to the generic warning handler — no retry.
+- **Hook retries exceeding 3 per user turn.** `_MAX_RETRIES = 3` is hardcoded. After 3 retries the hook is marked ERROR. Retry count resets per user message, not per session.
+- **Scratchpad dir None even for primary agents.** `init_scratchpad()` catches `OSError` from `tempfile.mkdtemp()` and returns `None`. Even primary agents can have `scratchpad_dir = None`. All tool `run()` implementations must null-guard `ctx.scratchpad_dir`.
+- **Tool `run()` using `return` instead of `yield`.** `BaseTool.run()` is declared as `AsyncGenerator`. A subclass using `return result` produces a coroutine, not an async generator. `invoke()` does `async for item in self.run(...)` — raises `TypeError: 'coroutine' object is not an async generator` at call time. Use `yield` to emit results.
+- **Agent TOML files in subdirectories.** `AgentManager._discover_agents()` uses `base.glob('*.toml')` — not `rglob`. Agent TOML files in subdirectories of agent_paths are silently ignored. Place all agent files directly in the search path root.
+- **`ctx.plan_file_path` accessed without null guard.** `InvokeContext.plan_file_path` is `Path | None` with default `None`. It is only populated when the active agent is the plan agent. Tools accessing it without a null guard will raise `AttributeError`/`TypeError` in every other context.
+- **`ctx.approval_callback` called without null guard.** `InvokeContext.approval_callback` is `ApprovalCallback | None` with default `None`. In programmatic/non-interactive contexts it is `None`. Calling `await ctx.approval_callback(...)` without null-checking raises `TypeError`.
+- **`disabled_tools` in agent TOML overrides replaces instead of adding.** `AgentProfile.apply_to_config()` uses `_deep_merge` which overwrites lists. Setting `disabled_tools = [...]` in overrides replaces the entire list. Use `base_disabled` for additive disabling (it is unioned with existing disabled_tools).
+- **Custom tool without `description` override.** `BaseTool.description` defaults to a placeholder string. Not overriding it means the LLM sees this placeholder in the function schema.
+- **Hook involving network/compile/test without timeout override.** `HookConfig.timeout` defaults to 30.0 seconds. Long-running hooks are killed with WARNING — no retry, no escalation.
+- **`enabled_tools` + `disabled_tools` expecting intersection.** `ToolManager.available_tools` checks `enabled_tools` first. If non-empty, `disabled_tools` is completely ignored. The same applies to `enabled_skills`/`disabled_skills`. Setting both is a silent bug.
+- **MCP tool referenced with dots/slashes instead of underscores.** MCP tools are registered as `{server_name}_{tool_name}`. References like `fetch_server.get` won't match in enabled_tools/disabled_tools/allowed_tools patterns.
+- **Tool search path with helpers/utils subdirectories.** `_iter_tool_classes()` uses `base.rglob('*.py')` — all subdirectories are searched. Any `BaseTool` subclass in helpers/utils/shared/ will be registered, including intermediate base classes.
+- **Custom agent TOML matching builtin name.** Unlike skills, `_discover_agents()` allows custom TOML files to override builtin agents — logged at INFO only. A custom `plan.toml` silently replaces the builtin. Avoid builtin names: default, plan, chat, accept-edits, auto-approve, explore, lean.

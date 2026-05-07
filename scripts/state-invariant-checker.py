@@ -29,22 +29,48 @@ def check_invariants(state_path, manifest_path):
             results["violations"].append(f"Missing required key: {key}")
             results["pass"] = False
 
+    # Validate types of required keys
+    current = state.get("currentPhase")
+    if current is not None and not isinstance(current, str):
+        results["violations"].append(
+            f"currentPhase must be a string or null, got {type(current).__name__}: {current!r}"
+        )
+        results["pass"] = False
+
+    retry_counts_raw = state.get("retryCounts")
+    if retry_counts_raw is not None and not isinstance(retry_counts_raw, dict):
+        results["violations"].append(
+            f"retryCounts must be an object, got {type(retry_counts_raw).__name__}"
+        )
+        results["pass"] = False
+        retry_counts_raw = {}
+
+    gate_decisions_raw = state.get("gateDecisions")
+    if gate_decisions_raw is not None and not isinstance(gate_decisions_raw, list):
+        results["violations"].append(
+            f"gateDecisions must be an array, got {type(gate_decisions_raw).__name__}"
+        )
+        results["pass"] = False
+
     workflow, warnings = load_workflow_manifest(manifest_path)
     if warnings:
         results["warnings"] = warnings
 
     # Check state survives phase transitions
     phases = [p["id"] for p in workflow.get("phases", [])]
-    current = state.get("currentPhase")
-
-    if current and current not in phases:
+    if isinstance(current, str) and current and current not in phases:
         results["violations"].append(f"currentPhase '{current}' not in manifest phases")
         results["pass"] = False
 
     # Check retry counts are bounded
     retry_limits = {p["id"]: p.get("retryLimit", 3) for p in workflow.get("phases", [])}
-    for phase_id, count in state.get("retryCounts", {}).items():
-        if phase_id in retry_limits and count > retry_limits[phase_id]:
+    for phase_id, count in (retry_counts_raw or {}).items():
+        if not isinstance(count, int):
+            results["violations"].append(
+                f"retryCounts['{phase_id}'] must be an integer, got {type(count).__name__}: {count!r}"
+            )
+            results["pass"] = False
+        elif phase_id in retry_limits and count > retry_limits[phase_id]:
             results["violations"].append(f"Retry count {count} exceeds limit {retry_limits[phase_id]} for phase {phase_id}")
             results["pass"] = False
 

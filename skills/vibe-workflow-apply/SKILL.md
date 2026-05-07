@@ -73,10 +73,13 @@ Common fixes per violation type:
 - Include a top-level tooling contract: required tools, inputs, outputs, execution entrypoint, evidence output, and failure semantics.
 - Include all executable contract sections: `name`, `goal`, `phases`, `tooling`, `state`, `middleware`, `approval_gates`, `evidence`, `failure_policy`, `commands`, and `validation`.
 - Verify component-level compliance before reporting complete:
-  - Generated skills use a discoverable path and frontmatter with `name`, `description`, `allowed-tools`, and `user-invocable`.
-  - Generated tool classes inherit `BaseTool` with `ToolArgs`, `ToolResult`, `BaseToolConfig`, and state typing.
+  - Generated skills use a discoverable path and frontmatter with `name`, `description`, `allowed-tools`, and `user-invocable`. Note: `allowed-tools` is advisory only and does not restrict what tools the model can call — use `enabled_tools` in an agent profile TOML for actual restriction.
+  - Generated tool classes inherit `BaseTool` with `ToolArgs`, `ToolResult`, `BaseToolConfig`, and state typing. If the tool's permission is `"ask"` and there is no `approval_callback` wired (programmatic mode, subagent without allowlist), the tool is **silently skipped** — `ToolResultEvent.skipped = True`, no exception. Tools that must execute in these contexts must use `permission: "always"` or override `resolve_permission()` to return `"always"`.
   - Generated middleware implements `async before_turn(self, context: ConversationContext) -> MiddlewareResult` and `reset(self, reset_reason: ResetReason = ResetReason.STOP) -> None`, returns `MiddlewareResult()` as the CONTINUE fallback, and does not claim pre-tool/post-tool hooks.
   - MCP server entries use `[[mcp_servers]]` with `name`, `command` or `url`, and transport type.
+  - Generated skills must have a `name` field that matches the directory name and follows the pattern `^[a-z0-9]+(-[a-z0-9]+)*$`. Names like "PRForge" or "MySkill" are invalid. The skill directory name and frontmatter `name` must match exactly.
+  - If the design requires scope enforcement (blocking file edits outside allowed patterns), this must be implemented as a custom `BaseTool` subclass with `resolve_permission()` or via the `approval_callback` mechanism — **never** as middleware. Middleware cannot intercept individual tool calls.
+  - If the design requires phase-gate enforcement, the phase transition must be triggered by a custom tool that calls `ctx.switch_agent_callback(profile_name)`. The new profile's `enabled_tools`/`disabled_tools` provides the actual enforcement. Do not rely on middleware or skill text alone for phase enforcement.
 - Set validation to serial, evidence-bearing, and non-mutating: `serial: true`, `evidenceRequired: true`, `mutatesWorkflow: false`.
 - Ensure the generated workflow can be consumed by its generated or required tools with no parser/schema mismatch.
 - If validation tooling would fail because the workflow/tooling contract is incomplete, fix that during apply.

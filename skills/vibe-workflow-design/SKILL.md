@@ -48,6 +48,16 @@ Reference citations are optional. Include them only when a feasibility claim is 
 
 If init artifacts are missing or unapproved, stop and tell the user to run `vibe-workflow:init`.
 
+## Pre-Design Decomposition
+
+Before mapping requirements to surfaces, decompose the workflow into three distinct layers:
+
+- **LLM reasoning** — what the model decides, plans, or generates
+- **Tool execution** — deterministic operations with structured `BaseModel` results
+- **Subagent delegation** — isolated sub-tasks with their own context and tool set
+
+Middleware is not a phase orchestrator. Hooks are not tool interceptors. The LLM is not a reliable signal emitter. Any design that blurs these layers will fail — catch it here, not in validate.
+
 ## Design Behavior
 
 Open with a recommendation:
@@ -121,6 +131,10 @@ Specific checks:
 - **Middleware is a loop guard, not a phase orchestrator.** If the workflow sequences phases (discover → diagnose → patch → validate), the correct surface is the `task` tool — each phase is a `task()` call and the parent agent checks `TaskResult.completed`. Middleware cannot observe what the LLM just produced and has a structural one-turn delay on every phase transition. Never design a phase state machine in middleware.
 - **Text signals are not a valid phase-transition mechanism.** Strings like `PHASE_COMPLETE: X` in LLM output require fragile regex parsing. Use a custom tool call returning a `BaseModel` result instead.
 - Middleware only has `before_turn(context)` active behavior plus reset. There is no `after_turn()`. It fires before every LLM call in the tool loop — on a turn with 5 tool calls, it fires 6 times. Middleware that counts turns or accumulates per-turn state will miscount.
+- **Middleware cannot intercept individual tool calls mid-turn.** A middleware that "blocks each file edit as it happens" or "checks each tool call" is architecturally impossible. Middleware runs once before the LLM call, not between tool executions. For scope enforcement (blocking writes outside allowed paths), use a custom `BaseTool` subclass with `resolve_permission()` or the `approval_callback` on `AgentLoop`. These are the only two surfaces that see individual tool calls.
+- **Phase-gate enforcement requires a tool trigger, not just agent profiles.** Saying "restrict tools per phase via agent profiles" is incomplete without specifying the trigger. The only real enforcement path: a custom tool that the LLM calls (e.g., `advance_phase(from="PLAN", to="IMPLEMENT")`), which validates the transition, writes state to disk, and calls `ctx.switch_agent_callback("implement-profile")`. The new profile's `enabled_tools`/`disabled_tools` then physically prevents the LLM from calling tools not in that set. Without a custom tool calling `switch_agent_callback`, there is no trigger — the LLM just reads skill text and hopes it follows the rules. For the standard plan-to-implement gate, use the built-in `exit_plan_mode` tool.
+- **AgentLoop does not write workflow state files.** `AgentLoop` has no API to write arbitrary state (`.pr-state.json`, `state.json`, etc.). The only persistence it performs is `SessionLogger` (conversation history). Any workflow state file must be written by the LLM via tool calls (`write_file`, `bash`), not by AgentLoop as a first-class operation.
+- **Skill names must match the directory name and pattern `^[a-z0-9]+(-[a-z0-9]+)*$`.** A skill named "PRForge" is invalid. The directory must be named `pr` and the `name` field in SKILL.md frontmatter must also be `pr`. The `SkillMetadata.name` field enforces this pattern and the manager warns when it doesn't match the directory.
 - Any middleware `reset()` implementation must check `ResetReason`: only clear state on `STOP`; preserve it on `COMPACT`. A reset that clears all state silently restarts the workflow on compaction.
 - Middleware registration requires modifying `_setup_middleware()` in `vibe/core/agent_loop.py` — this is always Tier D, regardless of how simple the middleware class is.
 - Treat `MiddlewareAction.COMPACT` as a distinct action and account for pipeline short-circuiting: `INJECT_MESSAGE` results compose, while `STOP` and `COMPACT` stop later middleware.
@@ -138,6 +152,9 @@ Specific checks:
 - Use `POST_AGENT_TURN` hooks only for post-turn validation/observation/retry; retry requires exit code 2 and stdout reinjection. Hooks can read `transcript_path`.
 - Use programmatic `--output streaming` / `--output json` for CI evidence where appropriate.
 - Do not use a tool when the requirement is to change how tools are selected, authorized, sequenced, or interpreted by AgentLoop.
+- **`todo` tool state does not survive a profile switch** — `switch_agent` creates a new `ToolManager` and the todo list is lost. If the design uses `todo` across a profile switch, it must checkpoint progress to a file or `state.json` first.
+- **Scratchpad path is non-deterministic across sessions** (`tempfile.mkdtemp()`, OS-assigned per process). Subagents get `scratchpad_dir=None` — the path is never injected into the subagent's system prompt. A subagent cannot use the scratchpad unless the parent passes the path explicitly in the task text.
+- **`ask_user_question` has two distinct failure modes**: (1) CLI `-p` and ACP both disable the tool at config level — the model cannot call it at all; (2) `run_programmatic()` direct library use leaves the tool enabled but with no callback wired, so it raises `ToolError` mid-session at invocation time. Design approval gates with the execution context in mind.
 - Prefer tool-level mechanisms where they fit: `BaseToolConfig` permission/allowlist/denylist/sensitive_patterns, `resolve_permission()`, `get_result_extra()`, `BaseToolState`, `get_tool_prompt()` / `prompt_path`, and `switch_agent_callback`.
 - Do not model agents as autonomous collaborators unless the runtime has a concrete agent/profile/tool mechanism that supports that role.
 - Treat Mistral Connectors as a distinct remote tool surface from MCP; do not collapse connector semantics into MCP config.

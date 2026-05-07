@@ -6,6 +6,14 @@ Before proposing code, first build an internal model of Mistral Vibe workflows u
 
 ## Core Concepts
 
+### Design Decomposition
+Before designing a workflow, separate the work into three distinct layers:
+- **LLM reasoning** — what the model decides, plans, or generates
+- **Tool execution** — deterministic operations with structured results
+- **Subagent delegation** — isolated sub-tasks with their own context and tool set
+
+Every design mistake in advanced workflows comes from blurring these layers. Middleware is not a phase orchestrator. Hooks are not tool interceptors. The LLM is not a reliable signal emitter.
+
 ### Agent Loop
 - Workflows run as loops with phases (discover → diagnose → patch → validate)
 - Each loop iteration: check entry criteria → execute actions → evaluate exit criteria → gate decision
@@ -17,6 +25,7 @@ Before proposing code, first build an internal model of Mistral Vibe workflows u
 - Skills provide specialized knowledge or user-invoked actions
 - Skill activation: description matching → load SKILL.md → execute instructions
 - Skills can reference scripts/, references/, examples/
+- **`allowed-tools` in skill frontmatter is advisory only** — it is never used to filter `ToolManager.available_tools`. The model sees all available tools regardless of what the skill declares. Use `enabled_tools` in an agent profile TOML for actual runtime tool restriction.
 
 ### Middleware
 - **Middleware is a loop guard, not a phase orchestrator.** It enforces turn limits, budget caps, read-only reminders, and compaction policy. It is not the right surface for sequencing workflow phases — use the `task` tool for that.
@@ -37,6 +46,9 @@ Before proposing code, first build an internal model of Mistral Vibe workflows u
 - Workflow state stored in `.vibe-workflow/state.json`
 - State includes: current phase, retry counts, evidence log, gate decisions
 - Session-only or persistent based on workflow config
+- **`todo` tool state does not survive a profile switch.** `switch_agent` calls `reload_with_initial_messages()` which creates a new `ToolManager`. The `todo` list is instance state on the old `ToolManager` and is lost. Workflows that use `todo` across a profile switch must persist progress to a file or state.json before switching.
+- **Scratchpad path is non-deterministic across processes/restarts.** `init_scratchpad()` uses `tempfile.mkdtemp()` — the path is OS-assigned per process. Within a single session it is idempotent. Subagents get `scratchpad_dir=None`, which means `_get_scratchpad_section(None)` returns `None` and the path is **never injected into the subagent's system prompt**. A subagent cannot discover the scratchpad path without being told it explicitly in the task text. If a subagent somehow had the path, `is_scratchpad_path()` checks globally and would grant `ALWAYS` permission — the failure is absent context, not permission denied.
+- **`ask_user_question` has two distinct failure modes.** CLI `-p` and ACP both disable the tool at the config level (added to `disabled_tools` before the session starts) — the model simply cannot call it. When `run_programmatic()` is used directly as a library, the tool is available in the registry but `user_input_callback` is never wired, so the tool raises `ToolError` at invocation time mid-session. Workflows with approval gates using `ask_user_question` must be designed knowing which contexts they'll run in.
 
 ### Prompt Injection / Skill Activation
 - Skills activate when description matches task context
@@ -60,6 +72,14 @@ Before proposing code, first build an internal model of Mistral Vibe workflows u
 - Max retries per phase (prevents infinite loops)
 - Convergence: bounded attempts with diagnosis on failure
 - Retry delay: optional backoff between attempts
+
+### Hooks
+- `POST_AGENT_TURN` is the only hook type — fires once per completed agent turn
+- Use for: post-turn validation, linting output, writing evidence, retrying on failure
+- **Retry protocol**: exit 2 + non-empty stdout → inject stdout as user message + retry; exit 2 + empty stdout → warning only; timeout (default 30s) → warning, no retry
+- **3-retry ceiling**: the runtime tracks `_MAX_RETRIES = 3` retries per hook name per user turn. After 3 retries the hook stops retrying for that turn. Retry count resets on new user message. Workflows using hooks as quality gates must account for this hard ceiling.
+- Chain breaks on first retrying hook — later hooks in the chain do not run that turn
+- Hooks never run in subagents; they only run for the primary agent turn
 
 ### Sandbox Validation
 - Disposable test repo or fixture PR

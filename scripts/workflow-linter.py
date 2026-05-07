@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """VibeFlow Workflow Linter - hard checks for workflow manifest."""
 
+import re
 import sys
 import json
 
@@ -93,7 +94,18 @@ def check_retry_limits(manifest):
                 "phase": phase.get("id", "?"),
                 "message": f"Phase '{phase.get('id')}' has no retryLimit"
             })
-        elif int(phase["retryLimit"]) < 0:
+            continue
+        raw = phase["retryLimit"]
+        try:
+            limit = int(raw)
+        except (TypeError, ValueError):
+            violations.append({
+                "rule": "invalid-retry-limit-type",
+                "phase": phase.get("id", "?"),
+                "message": f"Phase '{phase.get('id')}' retryLimit must be an integer, got {type(raw).__name__} {raw!r}"
+            })
+            continue
+        if limit < 0:
             violations.append({
                 "rule": "invalid-retry-limit",
                 "phase": phase.get("id", "?"),
@@ -292,6 +304,186 @@ def check_middleware_hooks(manifest):
     return violations
 
 
+def check_hook_types(manifest):
+    """Hook configs must only use POST_AGENT_TURN type."""
+    violations = []
+    hooks = manifest.get("hooks", [])
+    if not isinstance(hooks, list):
+        return []
+
+    valid_hook_types = {"post_agent_turn"}
+
+    for idx, hook in enumerate(hooks):
+        if not isinstance(hook, dict):
+            continue
+        hook_type = hook.get("type", "")
+        if hook_type and hook_type.lower() not in valid_hook_types:
+            violations.append({
+                "rule": "hook-type-not-supported",
+                "hook": hook.get("name", idx),
+                "message": f"HookType is a StrEnum with exactly one member: POST_AGENT_TURN. '{hook_type}' is not valid. Only post_agent_turn is supported.",
+            })
+        # Rule 15: hook-command-not-shell-executable
+        command = hook.get("command", "")
+        if command and re.search(r'[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_.]*:[a-zA-Z_]', command):
+            violations.append({
+                "rule": "hook-command-not-shell-executable",
+                "hook": hook.get("name", idx),
+                "severity": "warning",
+                "message": f"Hook command '{command}' looks like a Python import path. HookConfig.command is a subprocess shell string — dotted Python paths pass validation but fail at execution. Use a shell command or script path.",
+            })
+    return violations
+
+
+def check_middleware_compact_metadata(manifest):
+    """Custom middleware returning COMPACT must populate metadata."""
+    violations = []
+    middleware = manifest.get("middleware", [])
+    if not isinstance(middleware, list):
+        return []
+
+    registry = build_registry()
+    known_middleware = registry.get("middleware", {})
+
+    for idx, entry in enumerate(middleware):
+        if isinstance(entry, str):
+            name = entry
+        elif isinstance(entry, dict):
+            name = entry.get("name")
+            # Check if this middleware declares COMPACT action without metadata
+            actions = entry.get("actions", [])
+            if "compact" in [a.lower() for a in actions]:
+                if not entry.get("metadata"):
+                    violations.append({
+                        "rule": "middleware-compact-missing-metadata",
+                        "middleware": name or idx,
+                        "message": (
+                            f"Middleware '{name}' declares COMPACT action without metadata. "
+                            "AgentLoop._handle_middleware_result() reads result.metadata.get('old_tokens', ...) "
+                            "and result.metadata.get('threshold', ...) when handling COMPACT. "
+                            "Without these keys, it falls back to self.stats.context_tokens and the model's "
+                            "auto_compact_threshold, producing misleading telemetry. "
+                            "Add metadata: {old_tokens: ..., threshold: ...} to the middleware config."
+                        ),
+                    })
+            continue
+        else:
+            continue
+
+        # For string entries, check if it's a known middleware that handles compaction
+        if name not in known_middleware and name is not None:
+            # Custom middleware — warn about compact metadata if it mentions compact
+            pass  # Can't validate without source inspection
+
+    return violations
+
+
+def check_agent_profile_format(manifest):
+    """Agent profile references must use .toml extension."""
+    violations = []
+    agents = manifest.get("agents", [])
+    if not isinstance(agents, list):
+        return []
+
+    non_toml_extensions = {".yaml", ".yml", ".json", ".md"}
+    for idx, agent in enumerate(agents):
+        if isinstance(agent, dict):
+            path = agent.get("path", agent.get("file", ""))
+        elif isinstance(agent, str):
+            path = agent
+        else:
+            continue
+
+        if path:
+            ext = "." + path.rsplit(".", 1)[-1] if "." in path else ""
+            if ext.lower() in non_toml_extensions:
+                violations.append({
+                    "rule": "agent-profile-wrong-format",
+                    "agent": agent.get("name", idx) if isinstance(agent, dict) else idx,
+                    "severity": "warning",
+                    "message": f"Agent profile '{path}' uses '{ext}' extension. AgentManager._discover_agents() only globs *.toml files. Non-.toml profiles are silently ignored. Use .toml extension.",
+                })
+    return violations
+
+
+def check_skill_discovery(manifest):
+    """Validate skill discovery constraints."""
+    violations = []
+    skills = manifest.get("skills", [])
+    if not isinstance(skills, list):
+        return []
+
+    builtin_names = {
+        "vibe-workflow-init", "vibe-workflow-design", "vibe-workflow-plan",
+        "vibe-workflow-apply", "vibe-workflow-validate", "vibe-workflow-inspect",
+        "vibe-workflow-update", "vibe-workflow-realize",
+    }
+
+    for idx, skill in enumerate(skills):
+        if isinstance(skill, dict):
+            name = skill.get("name", "")
+            path = skill.get("path", "")
+        elif isinstance(skill, str):
+            name = skill
+            path = ""
+        else:
+            continue
+
+        # builtin-skill-name-reserved
+        if name in builtin_names:
+            violations.append({
+                "rule": "builtin-skill-name-reserved",
+                "skill": name,
+                "severity": "error",
+                "message": f"Custom skill name '{name}' matches a builtin skill name. _discover_skills_in_dir() silently skips custom skills whose metadata.name matches a builtin. Choose a different name.",
+            })
+
+        # skill-not-in-subdirectory
+        if path and not path.endswith("/SKILL.md") and "/" not in path.rstrip("/"):
+            violations.append({
+                "rule": "skill-not-in-subdirectory",
+                "skill": name or idx,
+                "severity": "error",
+                "message": f"Skill path '{path}' is not in a subdirectory. SkillManager._discover_skills_in_dir() looks for <dir>/SKILL.md inside each subdirectory. A SKILL.md at the search path root is silently ignored. Use skills/my-skill/SKILL.md structure.",
+            })
+
+    return violations
+
+
+def check_tool_discovery(manifest):
+    """Validate tool discovery constraints."""
+    violations = []
+    tooling = manifest.get("tooling", {})
+    if not isinstance(tooling, dict):
+        return []
+
+    required_tools = tooling.get("requiredTools", [])
+    if not isinstance(required_tools, list):
+        return []
+
+    for idx, tool in enumerate(required_tools):
+        if isinstance(tool, dict):
+            name = tool.get("name", "")
+            path = tool.get("path", "")
+        elif isinstance(tool, str):
+            name = tool
+            path = ""
+        else:
+            continue
+
+        # tool-file-starts-with-underscore
+        tool_file = path.rsplit("/", 1)[-1] if path else (name + ".py")
+        if tool_file.startswith("_"):
+            violations.append({
+                "rule": "tool-file-starts-with-underscore",
+                "tool": name or idx,
+                "severity": "error",
+                "message": f"Tool file '{tool_file}' starts with underscore. ToolManager._load_tools_from_file() returns None immediately for _*.py files — silently ignored, no warning. Rename to not start with underscore.",
+            })
+
+    return violations
+
+
 def check_reachable_phases(manifest):
     """No workflow phase that cannot be reached."""
     violations = []
@@ -412,6 +604,11 @@ def lint_workflow(manifest_path):
         check_commands_contract,
         check_validation_contract,
         check_middleware_hooks,
+        check_hook_types,
+        check_middleware_compact_metadata,
+        check_agent_profile_format,
+        check_skill_discovery,
+        check_tool_discovery,
         check_reachable_phases,
         check_tool_availability,
     ]:

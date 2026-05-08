@@ -79,6 +79,73 @@ Then explain:
 
 Use simple diagrams when they make the design easier to understand.
 
+## Candidate Strategy Search
+
+Before settling on the final architecture, run a bounded strategy search. The goal is to find the most effective grounded workflow, not merely the first feasible workflow.
+
+Use `references/strategy-selection.md` and `references/design-candidate-schema.json`.
+
+Generate 3-5 candidate architectures when the design space is non-trivial:
+
+- `minimal-native` — prefer built-in tools, skills, profile behavior, and existing workflow surfaces
+- `high-control` — add custom tools, profile switching, state, hooks, or source changes only where enforcement matters
+- `high-throughput` — optimize for automation, programmatic output, subagent analysis, and reduced user blocking
+- `low-maintenance` — minimize custom runtime code, source changes, and update burden
+- `unusual-grounded` — try a less obvious combination, but require proof for every capability edge
+
+Do not brainstorm freely. Every candidate must connect:
+
+1. requirement
+2. runtime surface
+3. concrete mechanism
+4. implementation or validation proof
+5. known failure mode
+
+Write these candidates to `DESIGN_CANDIDATES.json` before presenting the architecture. Use this shape:
+
+```json
+{
+  "candidates": [
+    {
+      "id": "minimal-native",
+      "intent": "Use native runtime surfaces wherever they satisfy the signed intent.",
+      "requirementsCovered": ["R1"],
+      "selectedSurfaces": ["skill", "task"],
+      "capabilityGraph": [
+        {
+          "requirement": "R1",
+          "surface": "task",
+          "mechanism": "Parent delegates bounded read-only analysis through task and owns file writes.",
+          "proof": "TaskResult.completed is checked and parent writes implementation artifacts.",
+          "failureMode": "TaskResult.completed=false on skipped tool calls or middleware stop."
+        }
+      ],
+      "rejectedBecause": [],
+      "scores": {
+        "effectiveness": 8,
+        "groundedness": 9,
+        "cost": 9,
+        "maintainability": 9,
+        "observability": 6,
+        "convergence": 7
+      }
+    }
+  ],
+  "winner": "minimal-native",
+  "winnerRationale": "Best requirement coverage with the smallest sufficient runtime surface."
+}
+```
+
+Then run:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/strategy-fit-linter.py" DESIGN_CANDIDATES.json
+```
+
+If the linter reports errors, revise or reject the invalid candidates before proceeding. Warnings may be kept only when the user-facing recommendation explains the tradeoff.
+
+The selected `winner` is the only candidate that may flow into `DESIGN.md`, `ARCHITECTURE.md`, and `WORKFLOW_CONTRACT.json` surface decisions. Summarize the serious rejected alternatives and why they lost. Do not implement or plan surfaces from losing candidates unless the user explicitly changes the approved design.
+
 ## Architecture Sanity Check
 
 Before asking for approval or writing design artifacts, run a blocking sanity check over the proposed architecture. The purpose is to maximize workflow success by choosing the right runtime surfaces, not just the first plausible implementation.

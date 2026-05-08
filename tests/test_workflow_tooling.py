@@ -227,6 +227,132 @@ SELECTED_TOOL_WITHOUT_EVIDENCE = {
 }
 
 
+VALID_STRATEGY_CANDIDATES = {
+    "candidates": [
+        {
+            "id": "minimal-native",
+            "intent": "Use native workflow primitives where they satisfy the signed intent.",
+            "requirementsCovered": ["R1"],
+            "selectedSurfaces": ["skill", "task"],
+            "capabilityGraph": [
+                {
+                    "requirement": "R1",
+                    "surface": "skill",
+                    "mechanism": "A skill gives the parent agent the workflow procedure.",
+                    "proof": "SKILL.md loads and command invokes the skill.",
+                    "failureMode": "Skill guidance is prompt-level and does not enforce runtime policy.",
+                },
+                {
+                    "requirement": "R1",
+                    "surface": "task",
+                    "mechanism": "Parent delegates bounded read-only analysis through task and owns file writes.",
+                    "proof": "TaskResult.completed is checked before the parent writes artifacts.",
+                    "failureMode": "TaskResult.completed=false if the subagent skips a tool call.",
+                },
+            ],
+            "rejectedBecause": [],
+            "scores": {
+                "effectiveness": 8,
+                "groundedness": 9,
+                "cost": 9,
+                "maintainability": 9,
+                "observability": 6,
+                "convergence": 7,
+            },
+        },
+        {
+            "id": "high-control",
+            "intent": "Use a custom tool when phase enforcement matters.",
+            "requirementsCovered": ["R1"],
+            "selectedSurfaces": ["tool", "agent-profile"],
+            "capabilityGraph": [
+                {
+                    "requirement": "R1",
+                    "surface": "tool",
+                    "mechanism": "A phase-advance tool validates transition and calls switch_agent_callback.",
+                    "proof": "Tool result records transition and active profile changes.",
+                    "failureMode": "Wrong tool name in enabled_tools hides the transition tool.",
+                },
+                {
+                    "requirement": "R1",
+                    "surface": "agent-profile",
+                    "mechanism": "The new profile exposes only the tools allowed for the phase.",
+                    "proof": "Tool schema after switch excludes out-of-phase tools.",
+                    "failureMode": "Profile TOML format errors silently prevent loading.",
+                },
+            ],
+            "rejectedBecause": [],
+            "scores": {
+                "effectiveness": 9,
+                "groundedness": 8,
+                "cost": 6,
+                "maintainability": 7,
+                "observability": 8,
+                "convergence": 8,
+            },
+        },
+        {
+            "id": "source-heavy",
+            "intent": "Patch source for maximum runtime control.",
+            "requirementsCovered": ["R1"],
+            "selectedSurfaces": ["source"],
+            "capabilityGraph": [
+                {
+                    "requirement": "R1",
+                    "surface": "source",
+                    "mechanism": "Modify AgentLoop after lower tier options are ruled out.",
+                    "proof": "Source tests cover the changed AgentLoop behavior.",
+                    "failureMode": "Runtime updates can break the maintained patch.",
+                }
+            ],
+            "rejectedBecause": ["Too much maintenance burden for this requirement."],
+            "scores": {
+                "effectiveness": 9,
+                "groundedness": 7,
+                "cost": 2,
+                "maintainability": 2,
+                "observability": 8,
+                "convergence": 8,
+            },
+        },
+    ],
+    "winner": "minimal-native",
+    "winnerRationale": "Best coverage with the smallest sufficient runtime surface.",
+}
+
+
+BROKEN_STRATEGY_CANDIDATES = {
+    "candidates": [
+        {
+            "id": "middleware-magic",
+            "intent": "Use middleware to react after each tool call.",
+            "requirementsCovered": ["R1"],
+            "selectedSurfaces": ["middleware"],
+            "capabilityGraph": [
+                {
+                    "requirement": "R1",
+                    "surface": "middleware",
+                    "mechanism": "Run after_tool and advance phase from PHASE_COMPLETE text signal.",
+                    "proof": "",
+                    "failureMode": "Middleware does not actually expose after_tool.",
+                }
+            ],
+            "rejectedBecause": [],
+            "scores": {
+                "effectiveness": 10,
+                "groundedness": 4,
+                "cost": 9,
+                "maintainability": 9,
+                "observability": 5,
+                "convergence": 9,
+            },
+        }
+    ],
+    "winner": "middleware-magic",
+    "winnerRationale": "Looks powerful.",
+}
+
+
 def run_script(*args, cwd=ROOT):
     return subprocess.run([sys.executable, *map(str, args)], cwd=cwd, capture_output=True, text=True)
 
@@ -362,8 +488,10 @@ class WorkflowToolingTests(unittest.TestCase):
             state = Path(tmp) / "state.json"
             report_dir = Path(tmp) / "reports"
             contract = Path(tmp) / "WORKFLOW_CONTRACT.json"
+            candidates = Path(tmp) / "DESIGN_CANDIDATES.json"
             path.write_text(CANONICAL.format(evidence=evidence, state=state))
             contract.write_text(json.dumps(SELECTED_TOOL_CONTRACT))
+            candidates.write_text(json.dumps(VALID_STRATEGY_CANDIDATES))
 
             proc = run_script(ROOT / "scripts/validation-runner.py", path, evidence, report_dir)
 
@@ -371,6 +499,7 @@ class WorkflowToolingTests(unittest.TestCase):
             data = json.loads(evidence.read_text())
             self.assertIn("design-contract-linter", [check["name"] for check in data["checks_run"]])
             self.assertIn("pattern-fit-linter", [check["name"] for check in data["checks_run"]])
+            self.assertIn("strategy-fit-linter", [check["name"] for check in data["checks_run"]])
 
     def test_validation_runner_resolves_declared_paths_relative_to_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -529,6 +658,66 @@ class WorkflowToolingTests(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0)
             data = json.loads(proc.stdout)
             self.assertIn("subagent-assigned-file-writing", {f["rule"] for f in data["findings"]})
+
+    def test_strategy_fit_accepts_grounded_candidate_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            candidates = Path(tmp) / "DESIGN_CANDIDATES.json"
+            candidates.write_text(json.dumps(VALID_STRATEGY_CANDIDATES))
+
+            proc = run_script(ROOT / "scripts/strategy-fit-linter.py", candidates)
+
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            data = json.loads(proc.stdout)
+            self.assertTrue(data["pass"])
+            self.assertEqual(data["winner"], "minimal-native")
+
+    def test_strategy_fit_rejects_ungrounded_middleware_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            candidates = Path(tmp) / "DESIGN_CANDIDATES.json"
+            candidates.write_text(json.dumps(BROKEN_STRATEGY_CANDIDATES))
+
+            proc = run_script(ROOT / "scripts/strategy-fit-linter.py", candidates)
+
+            self.assertNotEqual(proc.returncode, 0)
+            data = json.loads(proc.stdout)
+            rules = {f["rule"] for f in data["findings"]}
+            self.assertIn("capability-edge-missing-field", rules)
+            self.assertIn("middleware-invalid-candidate-mechanism", rules)
+
+    def test_strategy_fit_rejects_source_candidate_without_lower_tier_rejection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            candidates = Path(tmp) / "DESIGN_CANDIDATES.json"
+            data = {
+                **VALID_STRATEGY_CANDIDATES,
+                "candidates": [
+                    {
+                        **VALID_STRATEGY_CANDIDATES["candidates"][2],
+                        "id": "source-unjustified",
+                        "intent": "Patch source immediately.",
+                        "capabilityGraph": [
+                            {
+                                "requirement": "R1",
+                                "surface": "source",
+                                "mechanism": "Modify AgentLoop for convenience.",
+                                "proof": "Source test passes.",
+                                "failureMode": "Patch drift.",
+                            }
+                        ],
+                        "rejectedBecause": [],
+                    },
+                    VALID_STRATEGY_CANDIDATES["candidates"][0],
+                    VALID_STRATEGY_CANDIDATES["candidates"][1],
+                ],
+                "winner": "source-unjustified",
+                "winnerRationale": "Direct source patch.",
+            }
+            candidates.write_text(json.dumps(data))
+
+            proc = run_script(ROOT / "scripts/strategy-fit-linter.py", candidates)
+
+            self.assertNotEqual(proc.returncode, 0)
+            result = json.loads(proc.stdout)
+            self.assertIn("source-change-without-lower-tier-rejection", {f["rule"] for f in result["findings"]})
 
 
     # ── pre-apply-guard tests ────────────────────────────────────────────────

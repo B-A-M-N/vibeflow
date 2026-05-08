@@ -16,7 +16,7 @@ The plugin should not tell the agent to use every possible customization point. 
 ## Lifecycle
 
 1. **init** — interactive intent loop. Completes only after user sign-off and generation of `VISION.md`, `PLAN.md`, and `WORKFLOW_CONTRACT.json`.
-2. **design** — maps signed intent onto real Mistral Vibe runtime surfaces. Produces component breakdowns, diagrams, feasibility classification, design decisions, rejected alternatives, and approval-ready artifacts.
+2. **design** — maps signed intent onto real Mistral Vibe runtime surfaces. It first compares grounded candidate architectures, lints the candidate set, then promotes the winning candidate into component breakdowns, diagrams, feasibility classification, design decisions, rejected alternatives, and approval-ready artifacts.
 3. **plan** — researches source/docs as needed and produces implementation targets, component contracts, tests, and validation gates.
 4. **apply** — writes or patches files according to the approved plan. Runs a pre-apply surface guard to enforce the contract before any file is touched.
 5. **validate** — runs the serial validation chain, writes evidence, classifies failures, detects drift, and reports whether the workflow is ready or needs rework.
@@ -82,7 +82,7 @@ Every phase produces a machine-checkable artifact set that the next phase consum
 - `WORKFLOW_CONTRACT.json` — initial surface selections and rejections
 
 **design consumes:** `WORKFLOW_CONTRACT.json`, `references/feasibility/*`
-**design produces:** `DESIGN.md`, `ARCHITECTURE.md`, `SystemName-ORIGINAL.md` (mermaid diagram), `selected_surfaces[]`, `rejected_surfaces[]`, feasibility classification
+**design produces:** `DESIGN_CANDIDATES.json`, `DESIGN.md`, `ARCHITECTURE.md`, `SystemName-ORIGINAL.md` (mermaid diagram), `selected_surfaces[]`, `rejected_surfaces[]`, feasibility classification
 
 **plan consumes:** `WORKFLOW_CONTRACT.json`, `DESIGN.md`, `ARCHITECTURE.md`
 **plan produces:** updated `PLAN.md` with file targets, contracts, validation gates, expected evidence
@@ -116,6 +116,12 @@ Every phase produces a machine-checkable artifact set that the next phase consum
 - update/change-control records.
 
 This is how VibeFlow keeps creative freedom without allowing implementation drift. The schema does not force every workflow to include middleware, tools, hooks, agents, or MCP. It forces the workflow to justify the surfaces it does select and explain why others are unnecessary.
+
+## Grounded Strategy Search
+
+Before approving a design, VibeFlow writes `DESIGN_CANDIDATES.json`: a small portfolio of candidate architectures. Each candidate must map requirement → runtime surface → concrete mechanism → proof → failure mode. `scripts/strategy-fit-linter.py` rejects candidates that skip that proof chain, use impossible runtime mechanisms, select source changes without rejecting lower tiers, or choose a winner that is already marked rejected.
+
+This gives the model room to search for better workflows without letting conceptual but non-working designs reach implementation. The selected winner becomes the only candidate that can populate `DESIGN.md`, `ARCHITECTURE.md`, and `WORKFLOW_CONTRACT.json`.
 
 ## Contract-Drift Rules
 
@@ -161,6 +167,7 @@ The current validation chain includes:
 - gate checks (`gate-engine.py`)
 - design contract linting (`design-contract-linter.py`)
 - pattern-fit linting (`pattern-fit-linter.py`)
+- grounded strategy selection linting (`strategy-fit-linter.py`) when `DESIGN_CANDIDATES.json` exists
 - drift detection against approved surfaces (`drift-detector.py`)
 - convergence scoring (`convergence-scorer.py`)
 - evidence report generation (`evidence-reporter.py`)

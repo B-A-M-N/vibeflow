@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VibeFlow Design Candidate Set",
+  "type": "object",
+  "required": ["candidates", "winner", "winnerRationale"],
+  "properties": {
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "intent", "requirementsCovered", "selectedSurfaces", "capabilityGraph", "scores"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable candidate id, for example minimal-native or high-control."
+          },
+          "intent": {
+            "type": "string",
+            "description": "What this candidate optimizes for."
+          },
+          "requirementsCovered": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Requirement ids from WORKFLOW_CONTRACT.json or clear labels from signed intent."
+          },
+          "selectedSurfaces": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Runtime surfaces this candidate uses."
+          },
+          "capabilityGraph": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["requirement", "surface", "mechanism", "proof", "failureMode"],
+              "properties": {
+                "requirement": { "type": "string" },
+                "surface": { "type": "string" },
+                "mechanism": {
+                  "type": "string",
+                  "description": "Concrete runtime mechanism, not a vague role label."
+                },
+                "proof": {
+                  "type": "string",
+                  "description": "What implementation or validation evidence proves this edge works."
+                },
+                "failureMode": {
+                  "type": "string",
+                  "description": "Known way this edge can fail."
+                }
+              }
+            }
+          },
+          "rejectedBecause": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": []
+          },
+          "scores": {
+            "type": "object",
+            "required": ["effectiveness", "groundedness", "cost", "maintainability", "observability", "convergence"],
+            "properties": {
+              "effectiveness": { "type": "integer", "minimum": 0, "maximum": 10 },
+              "groundedness": { "type": "integer", "minimum": 0, "maximum": 10 },
+              "cost": { "type": "integer", "minimum": 0, "maximum": 10 },
+              "maintainability": { "type": "integer", "minimum": 0, "maximum": 10 },
+              "observability": { "type": "integer", "minimum": 0, "maximum": 10 },
+              "convergence": { "type": "integer", "minimum": 0, "maximum": 10 }
+            }
+          }
+        }
+      }
+    },
+    "winner": {
+      "type": "string",
+      "description": "Candidate id selected for DESIGN.md and WORKFLOW_CONTRACT.json."
+    },
+    "winnerRationale": {
+      "type": "string",
+      "description": "Why this candidate dominates the alternatives under the user's goals."
+    }
+  }
+}

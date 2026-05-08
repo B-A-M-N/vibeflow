@@ -90,6 +90,21 @@ def run_validation(manifest_path: str, evidence_path: str | None = None, report_
             "safe_next_action": "continue",
         })
 
+    strategy_path = _declared_strategy_path(manifest_file)
+    if strategy_path:
+        checks.append(_run_check(
+            "strategy-fit-linter",
+            [sys.executable, str(ROOT / "strategy-fit-linter.py"), strategy_path],
+        ))
+    else:
+        checks.append({
+            "name": "strategy-fit-linter",
+            "passed": True,
+            "skipped": True,
+            "failure_domain": None,
+            "safe_next_action": "continue",
+        })
+
     if simulator.get("passed"):
         drift = _run_check(
             "drift-detector",
@@ -185,6 +200,18 @@ def _declared_contract_path(manifest_file: Path) -> str | None:
     return None
 
 
+def _declared_strategy_path(manifest_file: Path) -> str | None:
+    manifest_dir = manifest_file.resolve().parent
+    for candidate in [
+        manifest_dir / "DESIGN_CANDIDATES.json",
+        manifest_dir.parent / "DESIGN_CANDIDATES.json",
+        Path.cwd() / "DESIGN_CANDIDATES.json",
+    ]:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
 def _run_check(name: str, command: list[str]) -> dict[str, Any]:
     proc = subprocess.run(command, capture_output=True, text=True)
     parsed = _parse_json(proc.stdout)
@@ -233,7 +260,7 @@ def _classify_check(name: str, check: dict[str, Any]) -> dict[str, Any]:
             "blocking_reason": "validator_or_parser_failed",
             "safe_next_action": "fix validation harness before redesigning workflow",
         }
-    if name in {"workflow-linter", "gate-engine", "convergence-scorer", "drift-detector", "state-invariant-checker", "design-contract-linter", "pattern-fit-linter"}:
+    if name in {"workflow-linter", "gate-engine", "convergence-scorer", "drift-detector", "state-invariant-checker", "design-contract-linter", "pattern-fit-linter", "strategy-fit-linter"}:
         return {
             "failure_domain": "generated_workflow",
             "is_design_flaw": False,

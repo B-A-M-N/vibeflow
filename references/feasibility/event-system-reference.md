@@ -120,33 +120,180 @@ OTEL is opt-in (`enable_otel = false` default). Any design that claims OTEL as a
 
 ## TUI Surface Reference
 
-The Textual UI (`vibe/cli/textual_ui/`) is a consumer of the event stream. When modifying events or adding new ones, the TUI must be updated alongside ACP.
+The entire UI is a Textual app (`vibe/cli/textual_ui/`). Two layers to modify: Python widget files (structure/behavior) and `app.tcss` (styling).
 
-**Key files:**
+### Layout Map
 
-| File | Role |
+Top-level layout from `VibeApp.compose()`:
+
+```
+#chat (ChatScroll)
+  └── Banner                          ← banner.py (cat + info line)
+  └── #messages (VerticalGroup)       ← all chat messages mount here
+
+#loading-area (Horizontal)
+  ├── NarratorStatus                  ← narrator_status.py
+  ├── #loading-area-content (Static)  ← LoadingWidget mounts here dynamically
+  └── FeedbackBar                     ← feedback_bar.py
+
+#bottom-app-container
+  └── ChatInputContainer              ← chat_input/ directory
+
+#bottom-bar (Horizontal)
+  ├── PathDisplay                     ← path_display.py
+  ├── #spacer
+  └── ContextProgress                 ← context_progress.py
+```
+
+### Component Reference
+
+| What you see | File | What to change |
+|---|---|---|
+| Banner (cat + model info) | `widgets/banner/banner.py` | `Banner.compose()` — add/remove/reorder widgets |
+| Cat animation | `widgets/banner/petit_chat.py` | `STARTING_DOTS` (shape), `TRANSITIONS` (animation frames) |
+| User messages | `widgets/messages.py` → `UserMessage` | `compose()` — layout, prefix chars |
+| Assistant messages | `widgets/messages.py` → `AssistantMessage` | wraps a `Markdown` widget |
+| Thinking/reasoning block | `widgets/messages.py` → `ReasoningMessage` | `SPINNING_TEXT`, `COMPLETED_TEXT`, triangle chars ▶▼ |
+| Tool call display | `widgets/tools.py` | tool name/args rendering |
+| Tool result display | `widgets/tool_widgets.py` | result formatting |
+| Bash output block | `widgets/messages.py` → `BashOutputMessage` | prompt char `$`, border style |
+| Error/warning blocks | `widgets/messages.py` → `ErrorMessage`, `WarningMessage` | prefix text, border |
+| Interrupt message | `widgets/messages.py` → `InterruptMessage` | "Interrupted · What should Vibe do instead?" text |
+| Spinner/status indicator | `widgets/status_message.py` | ✓/✕ chars, `SpinnerType` |
+| Feedback bar | `widgets/feedback_bar.py` | `_prompt_text()` — "How is Vibe doing?" text |
+| Bottom path display | `widgets/path_display.py` | path formatting |
+| Context progress bar | `widgets/context_progress.py` | token usage display |
+| "Load more" button | `widgets/load_more.py` | `_label_text()` |
+
+### Styling
+
+All CSS lives in `vibe/cli/textual_ui/app.tcss` — Textual's CSS dialect with `ansi_*` color tokens (respects terminal color scheme).
+
+Key selectors:
+
+| Selector | What it styles |
 |---|---|
-| `vibe/cli/textual_ui/app.py` | `VibeApp` — main Textual app, receives events from `AgentLoop` via `_handle_agent_loop_events` |
-| `vibe/cli/textual_ui/handlers/event_handler.py` | `EventHandler` — maps events to widget mutations (tool call/result widgets, assistant messages, compact indicators) |
-| `vibe/cli/textual_ui/widgets/banner/banner.py` | `Banner` — top-of-screen composable: info text + `PetitChat` widget inside a `Horizontal` container (`id=banner-container`) |
-| `vibe/cli/textual_ui/widgets/banner/petit_chat.py` | `PetitChat` — animated braille-art widget. Shape defined by `STARTING_DOTS` (list of sets of x-coords per row). Animation via `TRANSITIONS` (add/remove dot ops every 160ms). Rendered via `render_braille()` from `braille_renderer.py`. Controlled by `disable_welcome_banner_animation` config — when `True`, `animate=False` and the widget stays frozen on the first frame. |
+| `.reasoning-message-content` | thinking block text color/style |
+| `.bash-prompt`, `.bash-command`, `.bash-output` | bash block |
+| `.diff-added`, `.diff-removed`, `.diff-header` | diff colors |
+| `.todo-pending`, `.todo-in_progress`, `.todo-completed` | todo item colors |
+| `#bottom-bar`, `#loading-area` | bottom chrome layout |
+| `.warning-content` | yellow warning text |
+| `$mistral_orange: #FF8205` | the one named color variable |
 
-**Modifying the banner:**
+### Four Core Widget Patterns
 
-- To change the shape: modify `STARTING_DOTS` in `petit_chat.py`. Each entry is a set of x-coordinates for that y-row. Complex numbers like `1j + 6` mean `y=1, x=6`.
-- To change or remove animation: update/clear `TRANSITIONS`.
-- To replace the banner entirely: swap `yield PetitChat(animate=self._animated)` in `banner.py:57` for any other Textual widget (e.g., a `Static` with plain text or ASCII art).
+Understanding which pattern fits which display need is the key to working with the TUI.
 
-**Event-to-widget flow:**
+**Pattern 1: `reactive` + `watch_*` — Live Status Displays**
+
+Use when: a value changes over time and needs to auto-update without manual refresh calls.
+
+How it works: Textual watches the reactive field. When you assign a new value, `watch_<field>()` fires automatically — update child widgets inside it.
+
+`ContextProgress` — one reactive field, one watcher, one `update()` call:
+
+```python
+class ContextProgress(NoMarkupStatic):
+    tokens = reactive(TokenState())
+
+    def watch_tokens(self, new_state: TokenState) -> None:
+        ratio = min(1, new_state.current_tokens / new_state.max_tokens)
+        self.update(f"{ratio:.0%} of {new_state.max_tokens // 1000}k tokens")
+```
+
+`Banner` uses the same pattern with a dataclass as the reactive value and multiple child widgets updated in the watcher.
+
+Use for: phase indicator, current agent name, token spend counter, hook status — any value pushed from outside.
+
+**Pattern 2: `SpinnerMixin` — Working → Done Lifecycle**
+
+Use when: anything with an "in progress" state that resolves to success or failure.
+
+How it works: Mix `SpinnerMixin` into your `Static` subclass. Call `start_spinner_timer()` on mount. Call `stop_spinning(success=True/False)` when done. The mixin handles the frame loop, the ✓/✕ swap, and cleanup.
+
+Three spinner types: `BRAILLE` (⠋⠙⠹...), `PULSE` (■■□□...), `SNAKE` (braille snake animation).
+
+`StatusMessage` — ready-made widget composing a spinner icon + text label side by side.
+
+`LoadingWidget` — extends further with color-cycling text animation and an elapsed timer.
+
+Use for: hook execution status, phase transition indicator, any async operation with a clear end state.
+
+**Pattern 3: `set_interval` Timer — Polling / Animated Displays**
+
+Use when: anything that needs to animate or poll on a fixed cadence, independent of external events.
+
+How it works: Call `self.set_interval(seconds, callback)` in `on_mount()`. The callback fires on the Textual event loop — safe to call `self.update()` from it. Store the returned `Timer` and call `.stop()` in `on_unmount()`.
+
+`NarratorStatus` — animates bar characters at 150ms intervals while a state is active, stops the timer when idle:
+
+```python
+SHRINK_FRAMES = "█▇▆▅▄▃▂▁"
+BAR_FRAMES = ["▂▅▇", "▃▆▅", "▅▃▇", "▇▂▅", "▅▇▃", "▃▅▆"]
+
+def watch_state(self, new_state: NarratorState) -> None:
+    self._stop_timer()
+    match new_state:
+        case NarratorState.IDLE:
+            self.update("")
+        case NarratorState.SUMMARIZING | NarratorState.SPEAKING:
+            self._timer = self.set_interval(ANIMATION_INTERVAL, self._tick)
+```
+
+Use for: elapsed time counters, animated status bars, any display that ticks independently of LLM events.
+
+**Pattern 4: Inline Chat Messages — Mounting into `#messages`**
+
+Use when: information belongs in the conversation flow (tool results, phase transitions, validation output, warnings).
+
+How it works: all chat content mounts into the `#messages` `VerticalGroup`. Existing message classes show the structural options:
+
+| Class | Structure | Use for |
+|---|---|---|
+| `AssistantMessage` | Markdown renderer, streaming | Rich formatted output |
+| `BashOutputMessage` | `$ cmd` header + output block | Command results |
+| `InterruptMessage` | Border + plain text | Phase boundary markers |
+| `WarningMessage` / `ErrorMessage` | Colored border + text | Hook failures, scope violations |
+| `ReasoningMessage` | Collapsible header + Markdown | Long output collapsed by default |
+
+`ReasoningMessage` is a useful template for collapsible sections — the ▶/▼ toggle, spinner-while-streaming header, and hidden-until-expanded content body are all reusable patterns (e.g., "Investigation Summary", "Validation Ledger").
+
+### Where Each Display Type Belongs
+
+| Location | What goes there | How |
+|---|---|---|
+| **Banner** (top, persistent) | Phase name, active model, run ID | Add fields to `BannerState` dataclass, update in `watch_state()` |
+| **#loading-area** (below chat, transient) | Hook running, agent switching, git operations | Mount `LoadingWidget` or `StatusMessage`, remove when done |
+| **#bottom-bar** (always visible) | Token spend, current branch, scope file count | Add a new reactive `Static` next to `ContextProgress` |
+| **#messages** (inline, scrollable) | Validation results, review checklist, approval doc | Mount a `ReasoningMessage` or custom `Static` subclass |
+
+### Adding a New Widget
+
+1. Create a new file in `vibe/cli/textual_ui/widgets/`
+2. Subclass `Static` or `Widget` from Textual
+3. Import it in `app.py` and `yield` it inside `VibeApp.compose()` at the desired position
+4. Add CSS rules to `app.tcss` targeting its ID or class
+
+To mount dynamically inline with chat (e.g., a phase status widget), call `await self._mount_and_scroll(YourWidget())` from the event handler.
+
+### Event-to-Widget Flow
 
 ```
 AgentLoop emits event → VibeApp._handle_agent_loop_events
   → some events handled directly (HookStartEvent → loading widget)
   → all events passed to EventHandler.handle_event
-    → maps to widget mutations in the chat container
+    → maps to widget mutations in #messages container
 ```
 
 **Double-dispatch:** Some events (notably `HookStartEvent`) are consumed by both `VibeApp` (for loading widget) and `EventHandler` (for display). Custom consumers must account for this or loading widget behavior is lost.
+
+### Banner Modification
+
+- **Change shape:** modify `STARTING_DOTS` in `petit_chat.py`. Each entry is a set of x-coordinates for that y-row. Complex numbers like `1j + 6` mean `y=1, x=6`.
+- **Change/remove animation:** update or clear `TRANSITIONS`.
+- **Replace entirely:** swap `yield PetitChat(animate=self._animated)` in `banner.py:57` for any other Textual widget.
+- **Disable animation via config:** `disable_welcome_banner_animation: true` → `animate=False`, frozen on first frame.
 
 ## Design Implications
 

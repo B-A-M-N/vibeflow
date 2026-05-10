@@ -34,3 +34,6 @@ Record:
 - Session data is written but never loaded.
 - Custom events are emitted but no consumer handles them.
 - Validation depends on model self-report instead of deterministic checks.
+- **`RateLimitError` kills the turn**: no turn-level retry loop exists. A rate-limited API call ends the turn and propagates an error to the UI. Free-tier models will kill mid-phase. Not recoverable within the session.
+- **`MissingPromptFileError` on phase transition**: if a phase profile's `system_prompt_id` points to a missing `~/.vibe/prompts/<id>.md`, the agent crashes at config load. Hard blocker — not a warning, not a fallback.
+- **Compaction costs 2 API calls, not 1**: `compact()` summarizes history (1 call) then calls `backend.count_tokens()` (1 more call). For GenericBackend/OpenRouter, `count_tokens` is a full LLM call with `max_tokens=16`. Budget-conscious workflows must account for this.

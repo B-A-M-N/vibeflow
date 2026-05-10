@@ -113,6 +113,7 @@ Every workflow design must be classified by exactly one feasibility tier before 
 | `vibe/core/agents/manager.py` | AgentManager: agent switching, profile resolution |
 | `vibe/core/rewind/` | RewindManager: session fork/rewind, file snapshots (used by `get_file_snapshot()` in tools) |
 | `vibe/core/hooks/` | Hooks system: add new hook types beyond `POST_AGENT_TURN`, change hook execution semantics |
+| `vibe/core/llm/format.py` | `get_tool_choice()` — hardcoded to `"auto"`. No config-level or profile-level override exists. Forced tool choice requires adding `_forced_tool_choice` to `AgentLoop` and consuming it in `_chat()` / `_chat_streaming()`. |
 
 **Constraints:**
 - Changes are to the installed package — will be overwritten by updates unless maintained as a fork

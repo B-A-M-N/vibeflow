@@ -93,6 +93,23 @@ Common workflow patterns mapped to Mistral Vibe runtime surfaces, feasibility ti
 - Constraints: source patches must be maintained across Mistral Vibe updates and compatible with TUI/ACP
 - Proof: source-level tests or targeted runtime checks cover the changed behavior
 
+## Pattern: Checkpoint-Resume for Rate Limit Resilience
+
+**Use when:** The workflow runs for a long time on models with tight rate limits (free-tier), where a `RateLimitError` will kill the turn with no in-session recovery.
+
+- Runtime surface: file I/O via built-in tools (`write_file`, `read_file`), session directory
+- Tier: A
+- Constraints:
+  - `RateLimitError` is not recoverable within the session — the turn ends and propagates to the UI
+  - The backend has `@async_retry(tries=3)` at the HTTP request level, but `_chat()` and `_chat_streaming()` catch exceptions and immediately raise — no turn-level retry loop
+  - Session ID changes after compaction — follow the `parent_session_id` chain to locate logs
+- Mechanism:
+  1. Before starting a long phase, write a checkpoint file with current phase, completed steps, and evidence paths
+  2. On restart (external orchestration or new session), detect the checkpoint file
+  3. Read the checkpoint, validate state integrity, resume from the last completed phase
+  4. If no checkpoint exists, start from the beginning
+- Proof: checkpoint file exists on disk, resume logic correctly identifies the last completed phase, no duplicate work is performed
+
 ## Pattern: Impossible Assumption
 
 **Use when:** The request contradicts runtime mechanics or lacks any implementable signal.

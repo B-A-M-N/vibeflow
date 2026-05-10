@@ -301,6 +301,17 @@ Hook scripts must read and parse stdin to get session context. Without this, the
 
 **3-retry ceiling:** the runtime tracks retries per hook name per user turn (`_MAX_RETRIES = 3`). After 3 retries, the hook logs an error and stops retrying for that turn. Retry count resets on every new user message. Workflows using hooks as quality gates must account for this ceiling.
 
+## System Prompt Contract (vibe/core/system_prompt.py)
+
+`system_prompt_id` in an agent profile TOML selects the active system prompt. The lookup order is:
+1. `project_prompts_dirs` (project-level `.vibe/prompts/`)
+2. `user_prompts_dirs` (`~/.vibe/prompts/`)
+3. Builtin `SystemPrompt` enum (fallback)
+
+**Hard crash on missing file**: if `system_prompt_id` points to a file that does not exist in any of the above locations, the runtime raises `MissingPromptFileError` at config load time. The agent cannot start. This is not a warning and there is no fallback to the default prompt. Every custom prompt file must be deployed to `~/.vibe/prompts/` (or the project prompts directory) before the profile that references it is used.
+
+**Default is `"cli"`**: overriding `system_prompt_id` changes the entire base system prompt, including headless-mode behavior. Test thoroughly in the target execution context.
+
 ## Key Source File Map
 
 | Contract | Source File | Key Classes/Functions |

@@ -118,6 +118,39 @@ The correct pattern for multi-phase workflow orchestration. The parent agent seq
 - Common mistake: expecting `switch_agent` to clear middleware — the middleware pipeline survives the switch.
 - Common mistake: expecting `todo` state to survive a profile switch — `switch_agent` creates a new `ToolManager` and the todo list is lost.
 
+## D: Phase Advance Enforcement (Forced Tool Choice + Retry Cap)
+
+- Middleware detects phase completion (STOP condition)
+- Source loop injects a reminder message + sets `_forced_tool_choice` to the transition tool
+- Next turn: model is mechanically forced to call the transition tool (consumed → None)
+- If the tool fails: model gets a free turn to fix blocking conditions, then retry (up to N times)
+- Profile-change verification confirms the transition succeeded
+- Overall tier: D (source changes to `agent_loop.py`)
+- Common mistake: relying on the model to "know" it should call the transition tool without mechanical enforcement
+- Common mistake: forcing the specific tool without a retry cap — if the tool fails permanently, the loop retries forever
+
+## B: Forced Tool Choice via Custom Tool
+
+- Custom tool resolves the target tool class from `ToolManager.available_tools` and sets `_forced_tool_choice` via a callback or direct `AgentLoop` reference
+- Alternative: source patch to `AgentLoop` adds `_forced_tool_choice` consumed in `_chat()` / `_chat_streaming()`
+- Overall tier: D (source changes) for the override mechanism; B (tool-level) if the mechanism already exists
+- Common mistake: using `"required"` when a specific tool name is needed — `"required"` forces any tool, not the right one
+
+## B: Profile Switch with Visible Confirmation
+
+- Tool calls `ctx.switch_agent_callback` to change the active profile
+- Tool yields a human-readable confirmation string as its result (visible in chat via `ToolResultEvent`)
+- ACP clients never see `AgentProfileChangedEvent` (silently dropped) — the tool result text is the only visible indication
+- Overall tier: B (tool-level)
+- Common mistake: assuming the user will notice the profile change from the status bar alone
+
+## A/B: Checkpoint-Resume for Rate Limit Resilience
+
+- LLM writes checkpoint state to a file before each phase boundary (Tier A: built-in file I/O)
+- External orchestration or restart logic detects the checkpoint and resumes from the last completed phase
+- Overall tier: A (if checkpoint logic is in skill/config) or B (if custom tool writes structured checkpoints)
+- Common mistake: assuming `RateLimitError` is recoverable within the session — it kills the turn with no retry
+
 ## B: Skill Naming Convention
 
 - Skill directory name must match the `name` field in SKILL.md frontmatter.

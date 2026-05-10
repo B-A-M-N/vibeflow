@@ -19,6 +19,12 @@ Use this when deciding whether a workflow can be achieved through configuration 
 - MCP server `sampling_enabled`
 - tool-specific permission/config overrides, including allowlist, denylist, and sensitive patterns
 
+## Multi-Provider Constraints
+
+`compaction_model` must use the same provider as the active model. This is validated once at `VibeConfig` construction time — but **not re-validated** when `switch_profile` changes the active model at runtime. If your workflow uses multiple agent profiles with models from different providers, the compaction provider constraint is structurally unenforced after a profile switch.
+
+**Practical guidance:** Ensure all models across all agent profiles share one provider. If you need multi-provider workflows, set `auto_compact_threshold = 0` to disable auto-compaction entirely, or accept that compaction may fail silently at runtime.
+
 ## Design Implications
 
 - Config can enable/disable tools, register MCP servers, adjust permissions, set model/thinking behavior, set compaction model, add MCP usage hints, and point at tool paths.

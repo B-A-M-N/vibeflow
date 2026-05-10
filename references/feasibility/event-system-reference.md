@@ -57,6 +57,8 @@ Not all events are surfaced to ACP clients. Workflows that depend on ACP-visible
 
 **Implication:** Any workflow that switches agent profiles and expects ACP clients to reflect the change requires source changes to the ACP layer. Hook events are entirely invisible to ACP clients without source changes.
 
+**Mitigation for profile switches without ACP source changes:** Tools that trigger a profile switch via `ctx.switch_agent_callback` should yield a human-readable confirmation string as their result (e.g., `"Profile changed: plan → implement (model: mistral-large)"`). Since the tool result is displayed in the chat as a `ToolResultEvent`, this provides visible confirmation to the user without requiring ACP layer changes. This is a Tier B workaround for a Tier D gap.
+
 ## `message_observer` — Programmatic Observation Surface
 
 `AgentLoop` supports a `message_observer` callback that fires on `MessageList` mutations. This is distinct from the event stream:
@@ -112,6 +114,9 @@ OTEL is opt-in (`enable_otel = false` default). Any design that claims OTEL as a
 - **Session ID drift after compaction**: `_reset_session()` generates a new session ID (same suffix, new timestamp prefix) and sets `parent_session_id` to the old ID. Evidence that records a session ID at workflow start may not match the session ID at validation time if compaction fired. Follow the `parent_session_id` chain.
 - **`session_cost` as hard gate**: it is a worst-case estimate. Prompt caching can make actual cost lower. Do not use it as a hard pass/fail gate.
 - **`enable_experimental_hooks` missing**: without `enable_experimental_hooks = true`, all hooks are silently disabled. This field has `exclude=True` so it will not appear in auto-generated config. Workflows using hooks must assert this key is present.
+- **`RateLimitError` kills the turn — no turn-level retry**: the backend has `@async_retry(tries=3)` at the HTTP request level, but `_chat()` and `_chat_streaming()` catch exceptions and immediately raise `RateLimitError`. There is no turn-level retry loop. The error propagates to the UI and the turn ends. Free-tier models with tight rate limits will kill mid-phase. This is not a recoverable error within the session.
+- **`MissingPromptFileError` is a hard crash**: if `system_prompt_id` in any agent profile TOML points to a non-existent file in `~/.vibe/prompts/`, the runtime raises `MissingPromptFileError` at config load. The agent cannot start. This is not a warning or a fallback — it is a hard blocker. Every custom prompt file must be deployed before the profile that references it is used.
+- **Compaction triggers an extra `count_tokens` LLM call**: after `compact()` summarizes history, it calls `backend.count_tokens()`. For `GenericBackend` (OpenRouter), this is a second full LLM call with `max_tokens=16`. Every compaction costs 2 API calls, not 1. This matters for free-tier budgets and rate limit headroom.
 
 ## Design Implications
 

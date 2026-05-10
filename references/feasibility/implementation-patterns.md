@@ -293,3 +293,174 @@ result = run_programmatic(
 ```
 
 Source: `programmatic.py:27-57`, `programmatic.py:86-91`
+
+---
+
+### Pattern 16: Forced Tool Choice Override
+
+`get_tool_choice()` is hardcoded to `"auto"` — the model decides each turn whether to call a tool or emit text. There is no config-level or tool-level mechanism to force a tool call. When a workflow reaches a point where a specific tool *must* be called (a phase-advance tool, a gate-check tool, a checkpoint tool), the model can silently emit text instead and the workflow stalls with no error.
+
+**General mechanism:**
+
+1. Add a `_forced_tool_choice` instance variable to `AgentLoop`, typed as `StrToolChoice | AvailableTool | None`, default `None`.
+2. In `_chat()` and `_chat_streaming()`, consume it before falling through:
+   ```python
+   tool_choice = self._forced_tool_choice if self._forced_tool_choice is not None \
+                 else self.format_handler.get_tool_choice()
+   self._forced_tool_choice = None  # consume after one use
+   ```
+3. At the enforcement point, resolve the target tool class from `ToolManager.available_tools` and construct an `AvailableTool` with the specific function name. Fall back to `"required"` if the tool isn't in the schema.
+4. Inject a user-role reminder message alongside setting the forced choice.
+
+**Why consumption-on-read is safe:** The forced choice applies to exactly one LLM turn. If the tool call fails (returns a `ToolResult` with an error), the loop continues normally — the model gets a free, unforced turn to fix blocking conditions. This prevents the "trapped" failure mode where a forced tool fails and the model has no escape path.
+
+**When to use:** Any workflow with a mandatory transition point where a specific tool must be called and text output would stall the workflow.
+
+**When not to use:** For general "the model should probably call a tool" guidance. That belongs in the system prompt or skill text. Forced choice is for mechanically enforced transitions.
+
+**Tier:** D (source changes to `agent_loop.py`).
+
+Source: `agent_loop.py:1139-1147`, `agent_loop.py:1207-1215`, `format.py:63-73`
+
+---
+
+### Pattern 17: Phase Advance Enforcement with Retry Cap
+
+When a workflow phase completes, the model must call a specific transition tool to advance. Without enforcement, the model may emit text and stall. This pattern combines middleware STOP detection, message injection, forced tool choice, and profile-change verification.
+
+**Mechanism:**
+
+```python
+_MAX_ADVANCE_REMINDERS = 3
+_advance_reminder_count = 0
+_profile_before = self.agent_profile.name
+
+# In _conversation_loop, when middleware signals STOP:
+if (
+    should_break_loop
+    and _advance_reminder_count < _MAX_ADVANCE_REMINDERS
+):
+    _advance_reminder_count += 1
+    # Force the transition tool on the next turn
+    target_cls = self.tool_manager.available_tools.get("<transition_tool_name>")
+    if target_cls:
+        self._forced_tool_choice = AvailableTool(
+            function=AvailableFunction(
+                name=target_cls.get_name(),
+                description=target_cls.description,
+                parameters=target_cls.get_parameters(),
+            )
+        )
+    else:
+        self._forced_tool_choice = "required"
+    self.messages.append(LLMMessage(
+        role=Role.user,
+        content="[SYSTEM] Call <transition_tool_name> now to advance.",
+        injected=True,
+    ))
+    should_break_loop = False
+
+# After the turn, verify the profile actually changed
+if self.agent_profile.name != _profile_before:
+    _advance_reminder_count = 0  # reset for next phase
+```
+
+**Why this works:** The forced choice is consumed after one use. If the transition tool fails, the model gets a free turn to fix blocking conditions. The retry cap prevents infinite reminder loops. Profile-change verification ensures the enforcement stops once the transition succeeds.
+
+**Tier:** D (source changes to `agent_loop.py`; depends on Pattern 16).
+
+Source: `agent_loop.py:807-828`, `agent_loop.py:1139-1147`
+
+---
+
+### Pattern 18: Subagent Delegation with Result Validation and Fallback
+
+The parent agent issues `task()` calls and must handle incomplete results. `TaskResult.completed = False` fires on middleware stops, skipped tool calls, and unhandled exceptions — the parent will not act on it unless the prompt explicitly checks.
+
+**Mechanism:**
+
+```python
+# Parent issues subagent task
+result = task(task="Analyze the codebase for X", agent="explore")
+
+# Check completion — do not assume success
+if not result.completed:
+    # Read response for error detail (don't just check completed)
+    if "rate limit" in result.response.lower():
+        # Retry with backoff
+        result = task(task="Analyze the codebase for X", agent="explore")
+    elif "turn limit" in result.response.lower():
+        # Split the task into smaller chunks
+        ...
+    else:
+        # Fail with evidence
+        raise WorkflowError(f"Subagent failed: {result.response}")
+
+# Only proceed with valid results
+process(result.response)
+```
+
+**Key detail:** Always read `result.response` when `completed = False`. The response contains the error detail — whether it was a middleware stop, a skipped tool, or an unhandled exception. Callers that only check `completed` without reading `response` will miss the error cause.
+
+**Tier:** A (built-in `explore`) or B (custom subagent profiles).
+
+Source: `task.py:127-185`
+
+---
+
+### Pattern 19: Compaction-Safe and Switch-Safe State Persistence
+
+Both context compaction and agent profile switches can destroy in-memory state. Compaction resets the session ID and rebuilds the message list. Profile switches create a new `ToolManager` (wiping `todo` state) and rebuild the backend. State held only in memory is lost in both cases.
+
+**General pattern:**
+
+```python
+# Before any operation that might trigger compaction or profile switch:
+state = {
+    "phase": current_phase,
+    "completed_steps": steps_done,
+    "evidence": evidence_files,
+    "pending_actions": remaining,
+}
+write_state_file(state, ".workflow-state.json")
+
+# After the operation (compaction or switch), read it back:
+state = read_state_file(".workflow-state.json")
+if state is None:
+    # State lost — fail with evidence, do not silently restart
+    raise WorkflowError("State file missing after context operation")
+validate_state_integrity(state)  # check required fields exist
+```
+
+**Where to write:** Use a deterministic path in the project directory (`.workflow-state.json`) or the scratchpad. Never rely on `todo` state surviving a profile switch. Never rely on in-memory variables surviving compaction.
+
+**What this means for workflow designers:** Any workflow that spans multiple phases with profile switches must persist state to disk at each phase boundary. The state file is the only cross-switch, cross-compaction continuity mechanism available to the LLM.
+
+**Tier:** A (file I/O via built-in tools).
+
+Source: `agent_loop.py` (reload_with_initial_messages), `middleware.py` (AutoCompactMiddleware)
+
+---
+
+### Pattern 20: Profile Switch with Visible Confirmation
+
+`AgentProfileChangedEvent` is silently dropped by the ACP layer. The TUI only calls `on_profile_changed`, which typically updates the status bar — no in-chat indication. If the user isn't watching the status bar, they never know the profile (and therefore the active model, tool set, and system prompt) changed.
+
+**Pattern:** Tools that trigger a profile switch via `ctx.switch_agent_callback` should yield a human-readable confirmation string as their result. Since the tool result is shown in the chat as a `ToolResultEvent`, this is free — no event system changes needed.
+
+```python
+async def run(self, args: MyArgs, ctx: InvokeContext) -> AsyncIterator:
+    old_profile = ctx.agent_manager.active_profile.name if ctx.agent_manager else "unknown"
+    if ctx.switch_agent_callback:
+        await ctx.switch_agent_callback(args.target_profile)
+    yield MyResult(
+        message=f"Profile changed: {old_profile} → {args.target_profile} "
+                f"(model: {ctx.agent_manager.active_profile.active_model})"
+    )
+```
+
+**Why this matters:** Profile changes affect the model, tool availability, system prompt, and permission boundaries. An invisible change means the user doesn't know why the agent suddenly can't call certain tools, or why response quality changed.
+
+**Tier:** B (tool-level; no source changes needed if the tool already exists).
+
+Source: `event_handler.py:111-113`, `agent_loop.py:1576-1581`

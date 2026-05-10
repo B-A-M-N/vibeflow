@@ -118,6 +118,36 @@ OTEL is opt-in (`enable_otel = false` default). Any design that claims OTEL as a
 - **`MissingPromptFileError` is a hard crash**: if `system_prompt_id` in any agent profile TOML points to a non-existent file in `~/.vibe/prompts/`, the runtime raises `MissingPromptFileError` at config load. The agent cannot start. This is not a warning or a fallback — it is a hard blocker. Every custom prompt file must be deployed before the profile that references it is used.
 - **Compaction triggers an extra `count_tokens` LLM call**: after `compact()` summarizes history, it calls `backend.count_tokens()`. For `GenericBackend` (OpenRouter), this is a second full LLM call with `max_tokens=16`. Every compaction costs 2 API calls, not 1. This matters for free-tier budgets and rate limit headroom.
 
+## TUI Surface Reference
+
+The Textual UI (`vibe/cli/textual_ui/`) is a consumer of the event stream. When modifying events or adding new ones, the TUI must be updated alongside ACP.
+
+**Key files:**
+
+| File | Role |
+|---|---|
+| `vibe/cli/textual_ui/app.py` | `VibeApp` — main Textual app, receives events from `AgentLoop` via `_handle_agent_loop_events` |
+| `vibe/cli/textual_ui/handlers/event_handler.py` | `EventHandler` — maps events to widget mutations (tool call/result widgets, assistant messages, compact indicators) |
+| `vibe/cli/textual_ui/widgets/banner/banner.py` | `Banner` — top-of-screen composable: info text + `PetitChat` widget inside a `Horizontal` container (`id=banner-container`) |
+| `vibe/cli/textual_ui/widgets/banner/petit_chat.py` | `PetitChat` — animated braille-art widget. Shape defined by `STARTING_DOTS` (list of sets of x-coords per row). Animation via `TRANSITIONS` (add/remove dot ops every 160ms). Rendered via `render_braille()` from `braille_renderer.py`. Controlled by `disable_welcome_banner_animation` config — when `True`, `animate=False` and the widget stays frozen on the first frame. |
+
+**Modifying the banner:**
+
+- To change the shape: modify `STARTING_DOTS` in `petit_chat.py`. Each entry is a set of x-coordinates for that y-row. Complex numbers like `1j + 6` mean `y=1, x=6`.
+- To change or remove animation: update/clear `TRANSITIONS`.
+- To replace the banner entirely: swap `yield PetitChat(animate=self._animated)` in `banner.py:57` for any other Textual widget (e.g., a `Static` with plain text or ASCII art).
+
+**Event-to-widget flow:**
+
+```
+AgentLoop emits event → VibeApp._handle_agent_loop_events
+  → some events handled directly (HookStartEvent → loading widget)
+  → all events passed to EventHandler.handle_event
+    → maps to widget mutations in the chat container
+```
+
+**Double-dispatch:** Some events (notably `HookStartEvent`) are consumed by both `VibeApp` (for loading widget) and `EventHandler` (for display). Custom consumers must account for this or loading widget behavior is lost.
+
 ## Design Implications
 
 - Existing event usage is usually Tier A-C depending on whether code changes are needed.

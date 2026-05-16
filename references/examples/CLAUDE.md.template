@@ -1,0 +1,22 @@
+# VibeFlow Project Context
+
+Place this file in your Mistral Vibe project root as `CLAUDE.md` to activate VibeFlow knowledge during development.
+
+## Project Context
+
+- **Workflow name:** [your workflow name]
+- **Archetype:** [from references/examples/archetypes/README.md]
+- **VibeFlow phase:** [init | design | plan | apply | validate | update | inspect | realize]
+- **Key surfaces:** [e.g., custom tools, agent profiles, hooks, MCP]
+
+## Active References
+
+Load these when working on this project:
+
+- `references/feasibility/runtime-pattern-catalog.md` — runtime surface reference
+- `references/examples/archetypes/README.md` — workflow shape catalog
+- `references/strategy-selection.md` — design candidate guidance
+
+## Workflow-Specific Notes
+
+[Add notes about your workflow's design decisions, constraints, and known issues here.]

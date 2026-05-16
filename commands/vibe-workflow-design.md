@@ -14,7 +14,7 @@ Read:
 - `VISION.md`
 - `PLAN.md`
 - `WORKFLOW_CONTRACT.json`
-- `references/diagrams/diagram-index.json`
+- `references/feasibility/`
 
 ## Environment Preflight
 
@@ -29,7 +29,7 @@ If source or docs are unavailable, classify the design as assumption-based and l
 
 Use references with progressive disclosure:
 
-1. Read `references/diagrams/diagram-index.json` first.
+1. Read `references/feasibility/` first.
 2. Use the index to identify only the feasibility/runtime surfaces relevant to the proposed design.
 3. Read the matching feasibility and diagram files only when needed to sanity-check a concrete design claim.
 4. Do not load every reference file by default.

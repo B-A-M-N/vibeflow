@@ -75,7 +75,7 @@ For every targeted component type, include contract verification:
 - Workflow manifests: all executable sections required by `references/workflow-manifest-schema.json`
 - Agent profile TOMLs: every model name referenced in a profile's overrides must be declared as a model alias in `~/.vibe/config.toml` before the profile can reference it
 
-Use progressive disclosure. Start from `references/diagrams/diagram-index.json` and read only the reference/source files relevant to the approved surfaces. Do not dump all references into context.
+Use progressive disclosure. Start from `references/feasibility/` and read only the reference/source files relevant to the approved surfaces. Do not dump all references into context.
 
 Correct stale or unsupported assumptions before writing the implementation plan.
 

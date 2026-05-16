@@ -1,0 +1,239 @@
+{
+  "name": "pr-workflow-lite",
+  "phase": "design-approved",
+  "intent": {
+    "goal": "Create a guided 5-phase PR workflow that takes a GitHub issue or code change request and produces a professional pull request with human approval gating.",
+    "context": "Simplified version of PRForgeVibe's execution lane. Demonstrates VibeFlow methodology: agent profiles for phase enforcement, custom tools for gating, hooks for quality, GitNexus MCP for code intelligence.",
+    "scope": {
+      "in_scope": [
+        "Single-repo PR creation",
+        "5-phase pipeline (INTAKE→INVESTIGATE→IMPLEMENT→VALIDATE→PUSH)",
+        "Per-phase tool enforcement via agent profiles",
+        "GitNexus MCP integration",
+        "POST_AGENT_TURN hooks (phase-filtered)",
+        "Human approval gate",
+        "Compaction-safe state persistence"
+      ],
+      "out_of_scope": [
+        "Fork management",
+        "PR triage lane",
+        "Opportunity discovery",
+        "Auto-merge",
+        "CI/CD integration"
+      ]
+    },
+    "desired_behavior": "The model progresses through phases by calling advance_phase. Each phase has a distinct agent profile with restricted tools. The model cannot skip phases or call tools not in the current schema. Human approval is required before push.",
+    "non_goals": [
+      "Full autonomous operation without human approval",
+      "Multi-repo coordination",
+      "Production-grade reliability"
+    ],
+    "success_criteria": [
+      "Phase transitions are gated and cannot be skipped",
+      "Tool schema changes between phases",
+      "Unauthorized writes in read-only phases are blocked",
+      "State survives compaction",
+      "Recovery from empty responses and phase stalls",
+      "Human approval required before push"
+    ],
+    "constraints": [
+      "Tier B max (no source modifications to vibe/core/)",
+      "GitNexus MCP required for INVESTIGATE",
+      "All state persisted to disk",
+      "Hooks phase-filtered"
+    ],
+    "assumptions": [
+      "GitNexus MCP configured and repo indexed",
+      "gh CLI authenticated",
+      "Python repo (ruff + pyright)",
+      "User available for APPROVAL gate"
+    ]
+  },
+  "confidence": {
+    "goal": 0.95,
+    "scope": 0.90,
+    "behavior": 0.85,
+    "success_criteria": 0.90,
+    "overall": 0.90
+  },
+  "artifacts": {
+    "vision": "VISION.md",
+    "contract": "WORKFLOW_CONTRACT.json",
+    "design": "DESIGN.md",
+    "architecture": "ARCHITECTURE.md"
+  },
+  "design": {
+    "approved": true,
+    "runtime_surfaces": [
+      "config",
+      "skill",
+      "tool",
+      "mcp",
+      "hook",
+      "agent-profile",
+      "subagent"
+    ],
+    "feasibility_tier": "B",
+    "components": [
+      {
+        "name": "Agent Profiles (5 profiles)",
+        "purpose": "Per-phase tool enforcement and model selection",
+        "surface": "agent-profile",
+        "contracts": ["enabled_tools", "active_model", "system_prompt_id"]
+      },
+      {
+        "name": "advance_phase tool",
+        "purpose": "Gated phase transition with scope check, GitNexus evidence validation, dirty-tree detection",
+        "surface": "tool",
+        "contracts": ["BaseTool", "InvokeContext", "switch_agent_callback"]
+      },
+      {
+        "name": "check_scope tool",
+        "purpose": "Mid-phase scope verification (preview only, does not gate)",
+        "surface": "tool",
+        "contracts": ["BaseTool"]
+      },
+      {
+        "name": "init_state tool",
+        "purpose": "Initialize workflow state file, create branch",
+        "surface": "tool",
+        "contracts": ["BaseTool"]
+      },
+      {
+        "name": "POST_AGENT_TURN hooks",
+        "purpose": "Lint and typecheck in IMPLEMENT and VALIDATE phases only",
+        "surface": "hook",
+        "contracts": ["HookConfig.phases", "exit 2 retry protocol"]
+      },
+      {
+        "name": "GitNexus MCP",
+        "purpose": "Code intelligence for INVESTIGATE phase (query, context, impact)",
+        "surface": "mcp",
+        "contracts": ["gitnexus_query", "gitnexus_context", "gitnexus_impact"]
+      },
+      {
+        "name": "explore subagent",
+        "purpose": "Parallel investigation of subsystems during INVESTIGATE",
+        "surface": "subagent",
+        "contracts": ["task tool", "agent_type=subagent"]
+      }
+    ],
+    "requirements": [
+      {
+        "id": "R1",
+        "description": "Phase transitions must be gated — model cannot skip phases",
+        "status": "runtime",
+        "selected_surfaces": ["tool", "agent-profile"],
+        "success_proof": "advance_phase tool validates current phase, checks gates, and calls switch_agent_callback. Profile rebuilds ToolManager with new enabled_tools."
+      },
+      {
+        "id": "R2",
+        "description": "Tool schema must change between phases",
+        "status": "runtime",
+        "selected_surfaces": ["agent-profile"],
+        "success_proof": "Each profile has distinct enabled_tools. Profile switch rebuilds ToolManager. Model physically cannot call tools not in schema."
+      },
+      {
+        "id": "R3",
+        "description": "Unauthorized file modifications in read-only phases must be blocked",
+        "status": "runtime",
+        "selected_surfaces": ["tool"],
+        "success_proof": "advance_phase checks git status --porcelain before/after. Dirty source files in INTAKE/INVESTIGATE block transition."
+      },
+      {
+        "id": "R4",
+        "description": "State must survive compaction",
+        "status": "runtime",
+        "selected_surfaces": ["config"],
+        "success_proof": "All state in ~/.vibe/runs/<repo>/state.json. Agent profile survives natively. todo_state serialized to disk before advance."
+      },
+      {
+        "id": "R5",
+        "description": "Recovery from empty model responses and phase stalls",
+        "status": "runtime",
+        "selected_surfaces": ["tool"],
+        "success_proof": "advance_phase returns structured result. If model stalls (no advance call), next turn injects retry. Max 5 retries."
+      },
+      {
+        "id": "R6",
+        "description": "Human approval required before push",
+        "status": "runtime",
+        "selected_surfaces": ["agent-profile"],
+        "success_proof": "PUSH profile has no tools except bash and ask_user_question. Model must call ask_user_question and wait for response."
+      },
+      {
+        "id": "R7",
+        "description": "GitNexus evidence required for INVESTIGATE→IMPLEMENT transition",
+        "status": "runtime",
+        "selected_surfaces": ["mcp", "tool"],
+        "success_proof": "advance_phase checks gitnexus_evidence in state.json. Transition blocked without substantive query/context/impact results."
+      },
+      {
+        "id": "R8",
+        "description": "Hooks must only run in IMPLEMENT and VALIDATE phases",
+        "status": "runtime",
+        "selected_surfaces": ["hook"],
+        "success_proof": "HookConfig.phases = ['implement', 'validate']. HooksManager filters by current phase derived from agent profile name."
+      }
+    ],
+    "surfaceDecisions": [
+      {
+        "surface": "config",
+        "status": "selected",
+        "reason": "Agent profiles, model selection, tool permissions, hook enablement, compaction model — all config-driven.",
+        "requiredCapabilities": ["per-model compaction thresholds", "per-profile enabled_tools", "enable_experimental_hooks"],
+        "contracts": ["VibeConfig", "config.toml"],
+        "implementationEvidence": "profiles/*.toml, hooks/hooks.toml",
+        "validationEvidence": "Config loads correctly, profiles parse, hooks register"
+      },
+      {
+        "surface": "agent-profile",
+        "status": "selected",
+        "reason": "The primary enforcement mechanism. enabled_tools physically prevents model from calling tools not in schema. Model selection per phase enables cost optimization.",
+        "requiredCapabilities": ["enabled_tools filtering", "active_model switching", "system_prompt_id per profile"],
+        "contracts": ["AgentProfile", "ToolManager rebuild on switch"],
+        "implementationEvidence": "5 profile TOML files in profiles/",
+        "validationEvidence": "Model cannot call write_file in INTAKE — tool not in schema"
+      },
+      {
+        "surface": "tool",
+        "status": "selected",
+        "reason": "Phase gating, scope checking, and state initialization require deterministic logic that the model cannot bypass. Custom tools with structured results.",
+        "requiredCapabilities": ["BaseTool subclass", "InvokeContext.switch_agent_callback", "state read/write"],
+        "contracts": ["advance_phase", "check_scope", "init_state"],
+        "implementationEvidence": "tools/advance_phase.py, tools/check_scope.py, tools/init_state.py",
+        "validationEvidence": "Phase gate blocks without GitNexus evidence; scope check detects contract violations"
+      },
+      {
+        "surface": "mcp",
+        "status": "selected",
+        "reason": "GitNexus provides code intelligence (query, context, impact) that the model cannot fabricate. MCP tools are the integration path.",
+        "requiredCapabilities": ["gitnexus_query", "gitnexus_context", "gitnexus_impact"],
+        "contracts": ["MCP server registration", "tool schema"],
+        "implementationEvidence": "config.toml [[mcp_servers]] entry",
+        "validationEvidence": "INVESTIGATE→IMPLEMENT gate requires GitNexus evidence"
+      },
+      {
+        "surface": "hook",
+        "status": "selected",
+        "reason": "Automated quality gates (lint, typecheck) must run without model involvement. Hooks are subprocesses — no API cost.",
+        "requiredCapabilities": ["POST_AGENT_TURN", "exit 2 retry", "phase filtering", "timeout"],
+        "contracts": ["HookConfig", "HooksManager"],
+        "implementationEvidence": "hooks/hooks.toml",
+        "validationEvidence": "Lint errors in IMPLEMENT trigger retry; same errors in INTAKE are ignored"
+      },
+      {
+        "surface": "middleware",
+        "status": "rejected",
+        "reason": "Middleware is a loop guard, not a phase orchestrator. Phase gating via advance_phase tool is more reliable and testable. Middleware would fire N+1 times per turn and cannot observe what the model produced.",
+        "reconsiderIf": "Need for turn-level budget enforcement or read-only reminders that apply to ALL phases uniformly"
+      },
+      {
+        "surface": "source",
+        "status": "rejected",
+        "reason": "This workflow is designed for Tier B. No source modifications to vibe/core/ needed. All enforcement via profiles, tools, and hooks.",
+        "reconsiderIf": "Need bash mutation guard at the loop level (PRForgeVibe uses this for read-only phase enforcement)"
+      }
+    ]
+  }
+}

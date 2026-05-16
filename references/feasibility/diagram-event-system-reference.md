@@ -5,7 +5,7 @@ Maps event producers, event types, and consumers.
 Source references:
 
 - `references/feasibility/event-system-reference.md`
-- `references/diagrams/event-system.md`
+- `references/feasibility/diagram-event-system.md`
 
 ```mermaid
 flowchart LR

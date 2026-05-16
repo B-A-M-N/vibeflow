@@ -172,6 +172,17 @@ def _check_surface_decision(
             "surface": surface,
             "message": f"Validated workflow selected '{surface}' but recorded no validation proof",
         })
+    if surface == "source" and not _has_test_evidence(decision):
+        violations.append({
+            "rule": "source-surface-missing-test-evidence",
+            "surface": surface,
+            "message": (
+                "Selected surface 'source' MUST include test evidence: "
+                "implementationEvidence must contain test file paths "
+                "and a test command that verifies the source modification works. "
+                "See Pattern 21. A source change without tests is incomplete."
+            ),
+        })
     if surface and not _manifest_supports_surface(manifest, surface):
         violations.append({
             "rule": "selected-surface-missing-manifest-support",
@@ -250,6 +261,45 @@ def _manifest_supports_surface(manifest: dict[str, Any], surface: str) -> bool:
     if surface in {"mcp", "connector", "agent-profile", "subagent", "hook", "programmatic", "scratchpad", "agents-md", "todo", "user-question", "plan-mode", "event", "source", "backend-boundary", "not-feasible"}:
         return True
     return False
+
+
+def _has_test_evidence(decision: dict[str, Any]) -> bool:
+    """Check that a source-surface decision includes test evidence.
+
+    Requires BOTH:
+    1. At least one implementationEvidence item that looks like a test file path
+       (contains 'test' in the path or ends with _test.py / test_*.py).
+    2. A 'testCommand' field or an implementationEvidence item that looks like
+       a test runner command (starts with 'python', 'pytest', 'python -m', etc.).
+    """
+    evidence = decision.get("implementationEvidence")
+    if not isinstance(evidence, list) or not evidence:
+        return False
+
+    has_test_file = False
+    has_test_command = False
+
+    # Explicit testCommand field on the decision
+    if _nonempty_text(decision.get("testCommand")):
+        has_test_command = True
+
+    # Also check validationEvidence for test commands
+    val_evidence = decision.get("validationEvidence")
+    if isinstance(val_evidence, list):
+        evidence = evidence + val_evidence
+
+    for item in evidence:
+        if not isinstance(item, str):
+            continue
+        item_lower = item.lower().strip()
+        # Detect test file paths
+        if "test" in item_lower and (item_lower.endswith(".py") or "/" in item_lower or "\\" in item_lower):
+            has_test_file = True
+        # Detect test runner commands
+        if item_lower.startswith(("python", "pytest", "python -m", "python3", "python3 -m")):
+            has_test_command = True
+
+    return has_test_file and has_test_command
 
 
 def _nonempty_text(value: Any) -> bool:

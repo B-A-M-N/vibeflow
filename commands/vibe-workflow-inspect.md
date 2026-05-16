@@ -1,11 +1,11 @@
 ---
 name: vibe-workflow:inspect
-description: Inspect a repo or workflow — map existing skills, tools, middleware, config, source surfaces, artifacts, and validation state.
+description: Inspect a Mistral Vibe repo or VibeFlow workflow — map existing skills, tools, middleware, config, source surfaces, artifacts, and validation state.
 ---
 
 Inspect current repo/workflow and map runtime surfaces, artifacts, and validation state.
 
-1. Read `references/vibe-concepts.md` to understand Vibe workflow model.
+1. Read `references/feasibility/runtime-pattern-catalog.md` to understand Vibe workflow model.
 
 2. Locate workflow spec:
    - Check for `workflow.yaml` or `workflow.yml` in `.vibe-workflow/` or current directory

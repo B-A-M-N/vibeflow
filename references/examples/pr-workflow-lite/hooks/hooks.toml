@@ -1,0 +1,14 @@
+# WF-Lite: POST_AGENT_TURN hooks configuration
+# Phase-filtered: lint and typecheck only run in IMPLEMENT and VALIDATE
+
+[hooks.lint]
+command = "cd {repo_path} && uv run ruff check . | head -30"
+timeout = 30
+phases = ["implement", "validate"]
+# exit 2 → inject stdout as user message → agent fixes → retry (max 3 per turn)
+
+[hooks.typecheck]
+command = "cd {repo_path} && uv run pyright | head -50"
+timeout = 60
+phases = ["implement", "validate"]
+# exit 2 → inject stdout as user message → agent fixes → retry (max 3 per turn)

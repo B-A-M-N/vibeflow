@@ -1,0 +1,6 @@
+display_name = "WF-Lite: Implement"
+name = "wf-implement"
+description = "Code editing — implement the change within scope contract."
+active_model = "openrouter/owl-alpha"
+system_prompt_id = "wf-implement"
+enabled_tools = ["read_file", "grep", "bash", "write_file", "search_replace", "todo", "check_scope", "advance_phase", "gitnexus_*"]

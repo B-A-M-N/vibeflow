@@ -1,0 +1,9 @@
+display_name = "WF-Lite: Push"
+name = "wf-push"
+description = "Push branch and create PR. Requires human approval."
+active_model = "nemotron-free"
+system_prompt_id = "wf-push"
+enabled_tools = ["bash", "advance_phase", "ask_user_question"]
+
+[tools.bash]
+permission = "always"

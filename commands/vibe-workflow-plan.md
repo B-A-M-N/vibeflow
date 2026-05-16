@@ -14,7 +14,7 @@ Read:
 - `WORKFLOW_CONTRACT.json`
 - `DESIGN.md`
 - `ARCHITECTURE.md`
-- `references/diagrams/diagram-index.json`
+- `references/feasibility/`
 - relevant DeepWiki captures or source files when available
 
 Use feasibility references with progressive disclosure. Load only the specific feasibility docs, diagram docs, DeepWiki captures, or source files needed for the approved runtime surfaces and file targets.

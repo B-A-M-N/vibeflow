@@ -1,7 +1,7 @@
 ---
 name: vibe-workflow-realize
-description: Realize a conceptual workflow, partial implementation, skillset, or design document into a working, runtime-grounded Mistral Vibe implementation. Interactive: scans repo, presents candidates, confirms scope and intent, reflects on feasibility, proposes a fix plan, gets approval, then applies and validates.
-version: 1.0.0
+description: Realize a conceptual VibeFlow workflow, partial implementation, skillset, or design document into a working, runtime-grounded Mistral Vibe implementation. Interactive: scans repo, presents candidates, confirms scope and intent, reflects on feasibility, proposes a fix plan, gets approval, then applies and validates.
+version: 2.0.0
 allowed-tools:
   - ReadFile
   - WriteFile

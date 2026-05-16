@@ -1,0 +1,6 @@
+display_name = "WF-Lite: Validate"
+name = "wf-validate"
+description = "Run tests, lint, typecheck. Record results."
+active_model = "openrouter/owl-alpha"
+system_prompt_id = "wf-validate"
+enabled_tools = ["read_file", "grep", "bash", "write_file", "todo", "check_scope", "advance_phase", "gitnexus_detect_changes"]

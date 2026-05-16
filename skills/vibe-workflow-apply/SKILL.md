@@ -1,7 +1,7 @@
 ---
 name: vibe-workflow-apply
 description: "Run Phase 4 of VibeFlow: implement the approved plan, generate or repair required workflow tooling, and record implementation evidence."
-version: 2.1.0
+version: 2.0.0
 allowed-tools:
   - ReadFile
   - WriteFile

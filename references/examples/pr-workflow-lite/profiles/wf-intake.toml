@@ -1,0 +1,6 @@
+display_name = "WF-Lite: Intake"
+name = "wf-intake"
+description = "Initialize workflow — create branch, fetch issue context, clarify ambiguity."
+active_model = "nemotron-free"
+system_prompt_id = "wf-intake"
+enabled_tools = ["bash", "init_state", "advance_phase", "ask_user_question", "webfetch"]

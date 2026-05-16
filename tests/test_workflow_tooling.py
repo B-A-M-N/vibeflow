@@ -684,6 +684,95 @@ class WorkflowToolingTests(unittest.TestCase):
             self.assertIn("capability-edge-missing-field", rules)
             self.assertIn("middleware-invalid-candidate-mechanism", rules)
 
+    def test_design_contract_rejects_source_surface_without_test_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            contract = Path(tmp) / "WORKFLOW_CONTRACT.json"
+            contract_data = {
+                **SELECTED_TOOL_CONTRACT,
+                "design": {
+                    **SELECTED_TOOL_CONTRACT["design"],
+                    "surfaceDecisions": [
+                        {
+                            "surface": "source",
+                            "status": "selected",
+                            "reason": "Modify AgentLoop to add forced tool choice.",
+                            "requiredCapabilities": ["mechanically enforced phase transitions"],
+                            "contracts": ["agent_loop.py"],
+                            "implementationEvidence": ["vibe/core/agent_loop.py"],
+                        }
+                    ],
+                },
+            }
+            contract.write_text(json.dumps(contract_data))
+
+            proc = run_script(ROOT / "scripts/design-contract-linter.py", contract)
+
+            self.assertNotEqual(proc.returncode, 0)
+            data = json.loads(proc.stdout)
+            rules = {v["rule"] for v in data["violations"]}
+            self.assertIn("source-surface-missing-test-evidence", rules)
+
+    def test_design_contract_accepts_source_surface_with_test_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "workflow.json"
+            contract = Path(tmp) / "WORKFLOW_CONTRACT.json"
+            # Minimal JSON manifest so the linter can parse it without PyYAML
+            path.write_text(json.dumps({
+                "name": "Source Test",
+                "goal": "Verify source surface with test evidence passes.",
+                "phases": [
+                    {
+                        "id": "implement",
+                        "entry": "Start.",
+                        "exit": "Done.",
+                        "retryLimit": 0,
+                        "tools": ["read_file"],
+                    }
+                ],
+                "tooling": {
+                    "requiredTools": [
+                        {"name": "read_file", "purpose": "Read files.", "required": True},
+                    ],
+                },
+            }))
+            contract_data = {
+                "phase": "validated",
+                "design": {
+                    "surfaceDecisions": [
+                        {
+                            "surface": "tool",
+                            "status": "selected",
+                            "reason": "Read files deterministically.",
+                            "requiredCapabilities": ["read workflow inputs"],
+                            "contracts": ["tooling.requiredTools declares read_file"],
+                            "implementationEvidence": ["tooling.requiredTools.read_file"],
+                            "validationEvidence": ["dry run calls read_file"],
+                        },
+                        {
+                            "surface": "source",
+                            "status": "selected",
+                            "reason": "Modify AgentLoop to add forced tool choice.",
+                            "requiredCapabilities": ["mechanically enforced phase transitions"],
+                            "contracts": ["agent_loop.py"],
+                            "implementationEvidence": [
+                                "vibe/core/agent_loop.py",
+                                "tests/test_forced_tool_choice.py",
+                            ],
+                            "validationEvidence": [
+                                "python -m pytest tests/test_forced_tool_choice.py -v",
+                            ],
+                            "testCommand": "python -m pytest tests/test_forced_tool_choice.py -v",
+                        },
+                    ],
+                    "requirements": [],
+                },
+            }
+            contract.write_text(json.dumps(contract_data))
+
+            proc = run_script(ROOT / "scripts/design-contract-linter.py", path, contract)
+
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
     def test_strategy_fit_rejects_source_candidate_without_lower_tier_rejection(self):
         with tempfile.TemporaryDirectory() as tmp:
             candidates = Path(tmp) / "DESIGN_CANDIDATES.json"

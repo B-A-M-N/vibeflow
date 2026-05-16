@@ -34,7 +34,7 @@ Run deterministic checks wherever possible:
 10. Evidence check: simulator writes `.vibe-workflow/evidence/latest.json` or the manifest's declared evidence output.
 11. Report check: validation report is generated from actual runnable evidence.
 
-Use references on demand. Start from `references/diagrams/diagram-index.json` when checking runtime surfaces, then read only the specific feasibility/interface/event/config/session references needed to validate the implementation.
+Use references on demand. Start from `references/feasibility/` when checking runtime surfaces, then read only the specific feasibility/interface/event/config/session references needed to validate the implementation.
 
 Use the serial validation runner by default:
 

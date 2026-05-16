@@ -464,3 +464,90 @@ async def run(self, args: MyArgs, ctx: InvokeContext) -> AsyncIterator:
 **Tier:** B (tool-level; no source changes needed if the tool already exists).
 
 Source: `event_handler.py:111-113`, `agent_loop.py:1576-1581`
+
+---
+
+### Pattern 21: Source Modification Verification (Hard Invariant)
+
+This is not a pattern for a specific extension — it is a **meta-pattern that governs ALL Tier D changes**. Any modification to `vibe/core/` source files (AgentLoop, middleware, tools, events, session, hooks, format, etc.) is incomplete until tests have been constructed and run that verify the modification works as intended.
+
+**The invariant:**
+
+> Any custom modification to source that deviates from upstream MUST be verified as working. You MUST construct and run actual tests against the source changes to verify that the unique changes added work as intended.
+
+**Why this is non-negotiable:**
+- Source patches to `vibe/core/` are not covered by upstream tests — upstream tests verify upstream behavior, not your custom behavior.
+- A modification that "looks correct" can silently break under concurrency, after compaction, on profile switch, or when an edge case the author did not consider is hit.
+- Without a test, the only way to verify the change is to run the full workflow and observe — which is manual, slow, and unreliable.
+- On the next Vibe update, your patch may be silently overwritten or conflict with new behavior. A test detects this immediately.
+
+**Minimum test requirements:**
+
+Every source modification MUST include tests that satisfy ALL of the following:
+
+1. **Exercise the modified code path.** The test must call the specific function/method/behavior that was changed, not just import the module.
+2. **Assert expected behavior.** The test must have explicit assertions about what the modification does — not just "it doesn't crash."
+3. **Fail on regression.** If the modification is reverted, broken, or overwritten, the test MUST fail. A test that always passes is not a test.
+4. **Be independently runnable.** The test must be runnable without the full Vibe runtime — unit tests with mocks, targeted script-level verification, or integration tests with a test harness. "Run the full agent and watch the output" is not a test.
+
+**Test construction process:**
+
+```python
+# Step 1: Identify what you changed and what it should do.
+# Example: "Added _forced_tool_choice to AgentLoop. When set, _chat() should
+#          pass it to the LLM backend instead of 'auto', then clear it."
+
+# Step 2: Write a test that exercises exactly that behavior.
+import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
+from vibe.core.agent_loop import AgentLoop
+
+class TestForcedToolChoice(unittest.TestCase):
+    def test_forced_choice_overrides_auto(self):
+        """_chat() must use _forced_tool_choice when set, then clear it."""
+        loop = AgentLoop.__new__(AgentLoop)
+        loop._forced_tool_choice = AvailableTool(
+            function=AvailableFunction(name="my_tool", description="...", parameters={})
+        )
+        loop.format_handler = MagicMock()
+        loop.format_handler.get_tool_choice.return_value = "auto"
+
+        mock_backend = AsyncMock()
+        mock_backend.chat.return_value = iter([])
+
+        with patch.object(loop, '_make_request', new=mock_backend.chat):
+            # ... drive _chat() and assert the forced choice was passed
+            pass
+
+        # Assert: _forced_tool_choice was consumed (set to None after use)
+        self.assertIsNone(loop._forced_tool_choice)
+
+    def test_forced_choice_cleared_on_failure(self):
+        """_forced_tool_choice must be consumed even if the LLM call fails."""
+        # ... test that the choice is cleared even on exception
+        pass
+
+# Step 3: Run the test. It MUST pass. If it fails, fix the source, not the test.
+# Step 4: Include the test file in the deliverable alongside the source change.
+```
+
+**What counts as a valid test:**
+
+| Test type | Valid? | Notes |
+|---|---|---|
+| `unittest.TestCase` with mocks | Yes | Preferred for unit-level changes |
+| `pytest` function with fixtures | Yes | Equivalent to unittest |
+| Standalone script that exercises the change and exits 0/1 | Yes | Minimum acceptable — must have assertions |
+| Script that prints output for manual inspection | No | Not automated, not assertable |
+| "Run the full workflow and observe" | No | Too slow, too broad, not repeatable |
+| Upstream test that happens to import the module | No | Upstream tests verify upstream behavior, not your change |
+
+**Where to place tests:**
+
+- `vibe/core/tests/` — for unit tests of specific modules
+- `vibe/tests/integration/` — for integration tests that exercise multiple components
+- A standalone `test_<feature>.py` in the project root — acceptable for workflow-specific verification scripts
+
+**Tier:** D+ (applies to all Tier D changes; without tests, the change is incomplete and must not be marked DONE).
+
+**This pattern references:** `runtime-pattern-catalog.md` anti-pattern "Source modification without constructed tests", `extension-point-taxonomy.md` Tier D constraints.

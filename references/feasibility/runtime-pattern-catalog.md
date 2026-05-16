@@ -2,6 +2,16 @@
 
 This catalog describes valid Mistral Vibe workflow extension patterns. Use it to select the smallest correct runtime surface for a requirement. Do not treat this as a menu of everything to include.
 
+## Design Decomposition
+
+Before selecting runtime surfaces, decompose the workflow into three distinct layers:
+
+- **LLM reasoning** — what the model decides, plans, or generates
+- **Tool execution** — deterministic operations with structured results
+- **Subagent delegation** — isolated sub-tasks with their own context and tool set
+
+Every design mistake in advanced workflows comes from blurring these layers. Middleware is not a phase orchestrator. Hooks are not tool interceptors. The LLM is not a reliable signal emitter. Skills are not enforcement mechanisms.
+
 ## Selection Principle
 
 For each requirement:
@@ -23,9 +33,27 @@ Prefer native runtime primitives before custom surfaces. In particular, structur
 - prompt scaffold
 - tool availability boundary through `allowed_tools`
 
+**SkillMetadata constraints (Pydantic-validated)**
+
+| Field | Constraint |
+|---|---|
+| `name` | 1–64 chars, pattern `^[a-z0-9]+(-[a-z0-9]+)*$` (lowercase, hyphens only) |
+| `description` | 1–1024 chars |
+| `compatibility` | max 500 chars |
+| `allowed_tools` | Space-delimited string or list; advisory only (see below) |
+| `user_invocable` | Controls slash command menu visibility |
+
 **Important capability**
 
 Skill metadata includes `allowed_tools`, but this field is **advisory only and not enforced at the tool-availability level**. The model sees all available tools regardless of what `allowed_tools` declares. The field is parsed into `SkillMetadata` but is never used to filter `ToolManager.available_tools`. Treating `allowed_tools` as a hard access boundary will silently fail. Use agent profile `overrides.enabled_tools` when actual tool restriction is needed.
+
+**Discovery and loading**
+
+- Skill name **must match its directory name** — a mismatch logs a warning but does not fail. The frontmatter `name` is the invocation key; the directory name is cosmetic.
+- Skills are **loaded once per invocation** — re-invoke to reload. There is no hot-reload.
+- Skill discovery is **trust-gated**: `.vibe/skills/` and `.agents/skills/` are only loaded from trusted project directories. `~/.vibe/skills/` is always loaded.
+- **First-wins deduplication**: `SkillManager._discover_skills()` uses `if name not in skills` — the first skill found with a given name wins; later entries are silently ignored. A custom skill cannot override a builtin with the same name.
+- **SKILL.md must be in a subdirectory**: `_discover_skills_in_dir()` iterates `base.iterdir()`, skips non-directories, then looks for `<dir>/SKILL.md`. A `SKILL.md` at the search path root is silently ignored.
 
 **Not valid for**
 
@@ -255,18 +283,85 @@ Do not rely on implicit model knowledge when the workflow needs current external
 
 MCP and Mistral Connectors are both remote tool surfaces, but they are not the same mechanism. MCP uses configured MCP servers. Connectors use Mistral connector integration through the tool manager.
 
-MCP server config can include:
+### MCP Server Configuration
 
-- `prompt`: usage hint appended to tool descriptions
-- `sampling_enabled`: permits the MCP server to request LLM completions
+MCP servers are configured via `[[mcp_servers]]` entries in `config.toml`:
 
-Use `prompt` when the agent needs guidance on when a remote tool is appropriate. `sampling_enabled` is not a capability to enable — it is a capability that is **already on by default** and must be explicitly disabled when not needed.
+```toml
+[[mcp_servers]]
+name = "my-server"
+command = "npx"
+args = ["-y", "@my/mcp-server"]
+# transport: stdio (default when command is set)
+```
+
+```toml
+[[mcp_servers]]
+name = "remote-server"
+url = "https://example.com/mcp"
+# transport: streamable-http or websocket (inferred from url)
+```
+
+**Transport types:**
+
+| Transport | How to specify | Use when |
+|-----------|---------------|----------|
+| stdio | Set `command` (and optional `args`, `env`) | Local process, fastest, no network |
+| streamable-http | Set `url` | Remote server, stateless, scalable |
+| websocket | Set `url` starting with `ws://` or `wss://` | Remote server, persistent connection |
+
+**Per-server config options:**
+
+- `prompt`: Usage hint appended to all tool descriptions from this server. Use when the agent needs guidance on when these tools are appropriate.
+- `sampling_enabled`: Permits the MCP server to request LLM completions. **Defaults to `true`** — always set `false` unless the server specifically requires LLM access.
+- `disabled = true`: Hides all tools from this server (tools still discovered but not exposed to the model).
+- `disabled_tools = ["tool_a", "tool_b"]`: Hides specific tools by their **un-prefixed** names.
+
+**MCP tool registration:**
+
+MCP tools are registered in `ToolManager` with the naming pattern `{server_name}_{tool_name}`. The server name is normalized (non-alphanumeric → `_`, truncated to 256 chars). A server named `git-hub` exposes its `search` tool as `git-hub_search`.
+
+MCP tools appear in the model's tool schema alongside built-in and custom tools. They are subject to the same `enabled_tools`/`disabled_tools` filtering — but use the **full prefixed name** in global `enabled_tools`/`disabled_tools`, and **un-prefixed names** in per-server `disabled_tools`.
+
+### Mistral Connectors
+
+Connectors are configured via `[[connectors]]` entries in `config.toml`:
+
+```toml
+[[connectors]]
+name = "my-connector"
+# Connector-specific config
+```
+
+Connectors use the Mistral Connector API and are surfaced through `ConnectorRegistry`. They support the same per-entry `disabled` and `disabled_tools` controls as MCP servers.
+
+**MCP vs Connector decision:**
+
+| Factor | MCP | Connector |
+|--------|-----|-----------|
+| Protocol | Open standard (Model Context Protocol) | Mistral-specific API |
+| Transport | stdio, HTTP, websocket | Mistral API |
+| Tool discovery | Automatic from server | Through ConnectorRegistry |
+| Use when | Third-party or custom tool servers | Mistral-native integrations |
+
+### ACP (Agent Communication Protocol)
+
+ACP is an alternative entry point to the AgentLoop, used by IDE integrations and programmatic clients. It uses the same core runtime but differs from CLI in several ways:
+
+**Key ACP differences:**
+
+- **Config loading:** ACP loads config with `disabled_tools=["ask_user_question"]` — the model cannot call `ask_user_question` at all (same as CLI `-p` mode).
+- **Profile switching:** ACP can switch to the `chat` profile via `set_config_option(config_id="mode", value="chat")`. The CLI cannot — `chat` is ACP-only.
+- **Event consumption:** ACP consumers receive the same `BaseEvent` stream as the TUI, but `AgentProfileChangedEvent` is silently dropped by the ACP layer. Tools that switch profiles should return a human-readable confirmation string.
+- **Session model:** ACP sessions are typically shorter and more focused than CLI sessions. Design ACP workflows to complete within fewer turns.
 
 **Non-obvious behaviors**
 
 - **`sampling_enabled` defaults to `True`**: every configured MCP server can request LLM completions by default. This is not opt-in; it is the default. Any workflow that adds an MCP server without setting `sampling_enabled = false` grants that server the ability to trigger LLM completions using your API key. The correct posture is: **always set `sampling_enabled = false` unless the server specifically requires LLM access and that requirement is documented.**
 - **MCP server names are normalized at parse time**: the `name` field validator replaces non-alphanumeric/underscore/hyphen characters with `_`, strips leading/trailing `_-`, and truncates to 256 chars. A server named `my-server.v2` becomes `my-server_v2`, and all its tools are prefixed accordingly (e.g., `my-server_v2_search`). Workflows that hardcode prefixed tool names must account for this normalization.
 - **`disabled_tools` on MCP servers uses un-prefixed names**: `disabled_tools: ["search"]` disables the tool that would otherwise appear as `{server_name}_search`. Using the full prefixed name in `disabled_tools` will silently have no effect.
+- **MCP tool names in `enabled_tools` need the full prefix**: To enable only `search` from `my-server`, use `enabled_tools: ["my-server_search"]`, not `enabled_tools: ["search"]`.
+- **MCP tools in subagent profiles**: MCP tools are available to subagents only if the subagent's profile includes them in `enabled_tools` (or doesn't restrict tools). Subagents get a fresh `VibeConfig.load()` — they don't inherit the parent's runtime MCP server connections unless the config is shared.
 
 **Not valid for**
 
@@ -675,6 +770,17 @@ Programmatic mode combines naturally with `--max-turns`, `--max-price`, and `--e
 | AGENTS.md + skill | Persistent project context plus invocable procedure | Duplicated or conflicting system prompt guidance |
 | programmatic output + CI | Machine-readable validation evidence | Manual evidence writing |
 
+## Sandbox Validation
+
+For testing workflows without side effects:
+
+- Use a disposable test repo or fixture PR
+- No real repo mutation during validation
+- Mock tools where possible (capture calls without executing)
+- Validate the full pipeline: inspect → plan → patch → test → report
+
+Sandbox validation is especially important for Tier D (source modification) changes where the modified code could silently break.
+
 ## Known Gaps Between Design Intent and Runtime Behavior
 
 These are documented incoherences between what the workflow design spec claims and what the runtime actually does. They are not anti-patterns you can avoid — they are structural limitations you must design around.
@@ -692,6 +798,7 @@ These are documented incoherences between what the workflow design spec claims a
 | **No per-phase turn/price budgets** | Each phase can have its own resource budget | `max_turns` and `max_price` are global. There is no per-phase resource scoping at the config level. | Set global limits to the highest phase's requirement. Use middleware STOP + forced tool choice for phase-boundary enforcement. Profile-aware turn limits require source changes. |
 | **`tool_choice` is not a config-level surface** | Workflows can force a specific tool call at mandatory transition points | `get_tool_choice()` is hardcoded to `"auto"`. There is no config key, tool parameter, or profile override to force a tool call on the next turn. | Source change to `agent_loop.py`: add `_forced_tool_choice` instance variable consumed once per turn (Pattern 16). This is the only way to mechanically enforce a tool call. |
 | **Multi-provider compaction is structurally unenforced at runtime** | Compaction model provider is always validated | `_check_compaction_model_provider` runs once at `VibeConfig` construction. `switch_profile` / `reload_with_initial_messages()` does not re-run it. A profile switch to a model from a different provider will not be caught. | Ensure all models in all profiles share one provider. The constraint is practically safe but not structurally guaranteed when profiles change the active model at runtime. |
+| **Source modifications without constructed tests** | Custom source changes are verified by manual inspection or assumed working | There is no runtime mechanism that verifies a source patch does what it claims. A modified `AgentLoop`, middleware, or tool class can silently break — wrong behavior only surfaces when the workflow stalls, produces wrong output, or crashes in production. | Every source modification MUST include tests that are constructed as part of the change and run to verify the modification works as intended. See Pattern 21. A source change without tests is an incomplete change — do not mark it DONE. |
 
 ## Anti-Patterns
 
@@ -743,6 +850,10 @@ These are documented incoherences between what the workflow design spec claims a
 - **Subagent result assumed complete.** A parent agent that issues `task()` and proceeds to use the result without checking `TaskResult.completed`. When `completed = False` (middleware stop, skipped tool, unhandled exception), the parent operates on garbage data. Always check `completed` and read `response` for error detail (Pattern 18).
 - **State that must survive compaction or profile switch held only in memory.** Using `todo` or in-memory variables for state that spans phase boundaries. Both compaction and profile switches destroy in-memory state. Write to a file before any operation that might trigger a context switch (Pattern 19).
 - **Skill `allowed-tools` with comma-separated values.** `SkillMetadata.parse_allowed_tools` splits on whitespace via `.split()`, not commas. `allowed-tools: "bash, grep"` is parsed as a single tool name `"bash,"` — silently broken. Use space-separated values.
+- **Skill name violating `^[a-z0-9]+(-[a-z0-9]+)*$`.** Names with uppercase, underscores, spaces, or leading/trailing hyphens are invalid. `"PRForge"`, `"my_skill"`, `"my skill"` all fail. Use `"pr-forge"`, `"my-skill"`, `"my-skill"` respectively.
+- **Skill name not matching directory name.** `_parse_skill_file()` logs a warning when `metadata.name != skill_path.parent.name` but loads under `metadata.name`. The directory name is cosmetic; the frontmatter name is what matters for invocation — but the mismatch is a maintenance hazard.
+- **Assuming skills hot-reload.** Skills are loaded once per invocation. Editing a `SKILL.md` mid-session has no effect until the skill is re-invoked.
+- **Assuming `user_invocable` controls anything beyond menu visibility.** `user_invocable` only controls whether the skill appears in the slash command menu. It does not gate execution, restrict tool access, or affect runtime behavior.
 - **Middleware used as scope guard to block individual tool calls.** (Reiterated from above for visibility) Middleware only runs `before_turn()` — it cannot see or block individual tool calls mid-turn.
 - **Tool file starting with underscore.** `ToolManager._load_tools_from_file()` returns `None` immediately if the filename starts with `_`. A custom tool in `_helpers.py` or `_my_tool.py` is silently ignored — no warning, no error.
 - **Tool import error silently dropped.** `_load_tools_from_file()` wraps `spec.loader.exec_module(module)` in a bare `except Exception: return`. A syntax error, bad import, or `NameError` in a custom tool file causes it to be silently dropped.
@@ -768,3 +879,4 @@ These are documented incoherences between what the workflow design spec claims a
 - **MCP tool referenced with dots/slashes instead of underscores.** MCP tools are registered as `{server_name}_{tool_name}`. References like `fetch_server.get` won't match in enabled_tools/disabled_tools/allowed_tools patterns.
 - **Tool search path with helpers/utils subdirectories.** `_iter_tool_classes()` uses `base.rglob('*.py')` — all subdirectories are searched. Any `BaseTool` subclass in helpers/utils/shared/ will be registered, including intermediate base classes.
 - **Custom agent TOML matching builtin name.** Unlike skills, `_discover_agents()` allows custom TOML files to override builtin agents — logged at INFO only. A custom `plan.toml` silently replaces the builtin. Avoid builtin names: default, plan, chat, accept-edits, auto-approve, explore, lean.
+- **Source modification without constructed tests.** Any custom modification to `vibe/core/` source files (AgentLoop, middleware, tools, events, etc.) that is not accompanied by tests constructed and run to verify the change works as intended. A source patch that passes manual inspection but has no automated verification will silently break on the next runtime update, under load, or in edge cases the author did not think to check. This is not a code-style preference — it is a hard invariant: **if you change source, you test the change, and you provide the test as part of the deliverable.** See Pattern 21.

@@ -29,7 +29,7 @@ Run environment preflight before claiming a grounded runtime topology:
 
 If source/docs are unavailable, label the design assumption-based and record verification tasks for plan/validate.
 
-Then use the feasibility substrate with progressive disclosure. Start with `references/diagrams/diagram-index.json`, identify relevant runtime surfaces, and read only the matching reference files needed to sanity-check the current design.
+Then use the feasibility substrate with progressive disclosure. Start with `references/feasibility/`, identify relevant runtime surfaces, and read only the matching reference files needed to sanity-check the current design.
 
 Do not load every reference file by default. Do not make consulting references part of the user-facing workflow. Use the references internally when they help verify a concrete design claim.
 

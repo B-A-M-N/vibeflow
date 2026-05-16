@@ -1,7 +1,7 @@
 ---
 name: vibe-workflow-update
 description: "Run VibeFlow workflow change control: clarify requested changes, scan current artifacts, compare generated workflow against the goal, propose approved edits, apply them, and update lifecycle records."
-version: 1.0.0
+version: 2.0.0
 allowed-tools:
   - ReadFile
   - WriteFile

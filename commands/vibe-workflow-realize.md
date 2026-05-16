@@ -1,6 +1,6 @@
 ---
 name: vibe-workflow:realize
-description: Realize a conceptual workflow, partial implementation, skillset, or design document into a working, runtime-grounded Mistral Vibe implementation.
+description: Realize a conceptual VibeFlow workflow, partial implementation, skillset, or design document into a working, runtime-grounded Mistral Vibe implementation.
 ---
 
 Convert existing conceptual work into a working implementation.

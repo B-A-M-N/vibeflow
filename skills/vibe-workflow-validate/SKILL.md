@@ -46,7 +46,7 @@ Perform deterministic checks wherever possible:
 - evidence report completeness
 - tests or command output
 
-Use `references/diagrams/diagram-index.json` as the lookup entry point, then load only the specific feasibility/runtime references needed for the implementation being validated.
+Use `references/feasibility/` as the lookup entry point, then load only the specific feasibility/runtime references needed for the implementation being validated.
 
 Use scripts in `scripts/` when applicable:
 

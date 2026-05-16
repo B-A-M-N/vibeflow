@@ -80,6 +80,7 @@ def detect_drift(manifest_path, simulation_path, trace_path=None, contract_path=
     if contract:
         _check_contract_surfaces(contract, manifest, drift_report)
         _check_contract_components(contract, manifest, drift_report)
+        _check_source_test_evidence(contract, drift_report)
 
     # Determine severity
     severities = [d["severity"] for d in drift_report["drifts"]]
@@ -193,6 +194,72 @@ def _check_contract_components(contract, manifest, drift_report):
                 "expected": "present in manifest middleware or requiredTools",
                 "actual": "not present",
                 "severity": "medium"
+            })
+
+
+def _check_source_test_evidence(contract, drift_report):
+    """Flag source-selected surfaces that lack test evidence (Pattern 21)."""
+    decisions = _contract_values(contract, {"surfaceDecisions"})
+    if not decisions:
+        decisions = []
+    design = contract.get("design") if isinstance(contract, dict) else None
+    if isinstance(design, dict) and isinstance(design.get("surfaceDecisions"), list):
+        decisions.extend(design["surfaceDecisions"])
+
+    for idx, decision in enumerate(decisions):
+        if not isinstance(decision, dict):
+            continue
+        surface = _canonical_surface(decision.get("surface"))
+        if surface != "source":
+            continue
+        status = decision.get("status")
+        if status not in ("selected",):
+            continue
+
+        evidence = decision.get("implementationEvidence") or []
+        val_evidence = decision.get("validationEvidence") or []
+        all_evidence = evidence + val_evidence
+
+        has_test_file = False
+        has_test_command = False
+
+        # Explicit testCommand field
+        test_cmd = decision.get("testCommand")
+        if isinstance(test_cmd, str) and test_cmd.strip():
+            has_test_command = True
+
+        for item in all_evidence:
+            if not isinstance(item, str):
+                continue
+            item_lower = item.lower().strip()
+            if "test" in item_lower and (item_lower.endswith(".py") or "/" in item_lower):
+                has_test_file = True
+            if item_lower.startswith(("python", "pytest", "python -m", "python3", "python3 -m")):
+                has_test_command = True
+
+        if not has_test_file:
+            drift_report["drifts"].append({
+                "type": "source_surface_missing_test_file",
+                "surface": "source",
+                "decision_index": idx,
+                "message": (
+                    f"source surface decision[{idx}] has no test file in "
+                    "implementationEvidence. Pattern 21 requires a test that "
+                    "exercises the modified code path."
+                ),
+                "severity": "high",
+            })
+        if not has_test_command:
+            drift_report["drifts"].append({
+                "type": "source_surface_missing_test_command",
+                "surface": "source",
+                "decision_index": idx,
+                "message": (
+                    f"source surface decision[{idx}] has no test command. "
+                    "Pattern 21 requires a runnable test command "
+                    "(e.g., 'python -m pytest tests/test_my_change.py')."
+                ),
+                "severity": "high",
             })
 
 
